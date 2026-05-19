@@ -1,2 +1,4 @@
 /.venv/
 /new_res/
+*.zip
+*.7z
