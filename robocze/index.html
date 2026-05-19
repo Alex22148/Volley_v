@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VolleyHub • Remote Control</title>
+
+  <!-- Universal Resource Loader -->
+  <script>
+    // Funkcja do ładowania zasobów z fallback
+    function loadResource(src, local, type = 'script') {
+      return new Promise((resolve, reject) => {
+        if (type === 'script') {
+          const script = document.createElement('script');
+          script.src = src;
+          script.onload = resolve;
+          script.onerror = () => {
+            console.log(`CDN failed, trying local: ${local}`);
+            script.src = local;
+            document.head.appendChild(script);
+          };
+          document.head.appendChild(script);
+        } else if (type === 'css') {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = src;
+          link.onload = resolve;
+          link.onerror = () => {
+            console.log(`CDN failed, trying local: ${local}`);
+            link.href = local;
+            document.head.appendChild(link);
+          };
+          document.head.appendChild(link);
+        }
+      });
+    }
+
+    // Spróbuj załadować Panzoom z CDN, fallback do lokalnego
+    loadResource(
+      'https://unpkg.com/panzoom@9.4.0/dist/panzoom.min.js',
+      './static/panzoom.min.js',
+      'script'
+    ).catch(() => {
+      console.log('Both CDN and local Panzoom failed, using basic zoom');
+      // Basic panzoom implementation jako fallback
+      const script = document.createElement('script');
+      script.textContent = `
+        function initBasicPanZoom(element) {
+          let scale = 1;
+          let posX = 0;
+          let posY = 0;
+          let isDragging = false;
+          let lastX, lastY;
+
+          element.style.transformOrigin = '0 0';
+
+          function updateTransform() {
+            element.style.transform = \\`translate(\\${posX}px, \\${posY}px) scale(\\${scale})\\`;
+          }
+
+          element.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            lastX = e.clientX;
+            lastY = e.clientY;
+            element.style.cursor = 'grabbing';
+          });
+
+          document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+
+            const deltaX = e.clientX - lastX;
+            const deltaY = e.clientY - lastY;
+
+            posX += deltaX;
+            posY += deltaY;
+
+            lastX = e.clientX;
+            lastY = e.clientY;
+
+            updateTransform();
+          });
+
+          document.addEventListener('mouseup', () => {
+            isDragging = false;
+            element.style.cursor = 'move';
+          });
+
+          element.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const rect = element.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            const zoomIntensity = 0.1;
+            const wheel = e.deltaY < 0 ? 1 : -1;
+            const newScale = scale * (1 + wheel * zoomIntensity);
+
+            if (newScale < 0.1 || newScale > 5) return;
+
+            posX -= (mouseX - posX) * (newScale / scale - 1);
+            posY -= (mouseY - posY) * (newScale / scale - 1);
+
+            scale = newScale;
+            updateTransform();
+
+            const slider = document.getElementById('zoom-slider');
+            if (slider) slider.value = scale.toFixed(1);
+          });
+
+          window.resetZoom = function() {
+            scale = 1;
+            posX = 0;
+            posY = 0;
+            updateTransform();
+            const slider = document.getElementById('zoom-slider');
+            if (slider) slider.value = '1';
+          };
+
+          const slider = document.getElementById('zoom-slider');
+          if (slider) {
+            slider.addEventListener('input', (e) => {
+              const newScale = parseFloat(e.target.value);
+              const rect = element.getBoundingClientRect();
+              const centerX = rect.width / 2;
+              const centerY = rect.height / 2;
+
+              posX -= (centerX - posX) * (newScale / scale - 1);
+              posY -= (centerY - posY) * (newScale / scale - 1);
+
+              scale = newScale;
+              updateTransform();
+            });
+          }
+
+          element.addEventListener('dblclick', resetZoom);
+        }
+
+        // Override the original panzoom initialization
+        const originalAddEventListener = document.addEventListener;
+        document.addEventListener = function(type, listener, options) {
+          if (type === 'DOMContentLoaded' && listener.toString().includes('panzoom')) {
+            // Replace panzoom init with basic one
+            originalAddEventListener.call(document, 'DOMContentLoaded', function() {
+              const elem = document.getElementById('preview');
+              if (!elem) return;
+              initBasicPanZoom(elem);
+
+              const resetBtn = document.getElementById('reset-zoom');
+              if (resetBtn) resetBtn.addEventListener('click', () => window.resetZoom && window.resetZoom());
+            }, options);
+          } else {
+            originalAddEventListener.call(document, type, listener, options);
+          }
+        };
+      `;
+      document.head.appendChild(script);
+    });
+  </script>
+
+  <style>
+    /* Basic fallback styles that work even without Tailwind */
+    #preview {
+      touch-action: none;
+      user-select: none;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f7f8fa;
+      color: #222;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Container styles */
+    .fallback-container {
+      max-width: 72rem;
+      margin-left: auto;
+      margin-right: auto;
+      padding: 1rem;
+    }
+
+    /* Card styles */
+    .fallback-card {
+      background: white;
+      border-radius: 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      border: 1px solid #e5e7eb;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    /* Grid system */
+    .fallback-grid {
+      display: grid;
+      gap: 1rem;
+    }
+
+    .lg-col-span-2 {
+      grid-column: span 2;
+    }
+
+    /* Responsive */
+    @media (max-width: 1023px) {
+      .fallback-grid {
+        grid-template-columns: 1fr;
+      }
+      .lg-col-span-2 {
+        grid-column: span 1;
+      }
+    }
+
+    @media (min-width: 1024px) {
+      .fallback-grid {
+        grid-template-columns: 2fr 1fr;
+      }
+    }
+
+    /* Component styles */
+    .aspect-video {
+      position: relative;
+      padding-bottom: 56.25%; /* 16:9 */
+      height: 0;
+      overflow: hidden;
+    }
+
+    .aspect-video > * {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .bg-\[\#111\] {
+      background: #111;
+    }
+
+    .rounded-xl {
+      border-radius: 0.75rem;
+    }
+
+    .overflow-hidden {
+      overflow: hidden;
+    }
+
+    .flex {
+      display: flex;
+    }
+
+    .items-center {
+      align-items: center;
+    }
+
+    .justify-between {
+      justify-content: space-between;
+    }
+
+    .justify-center {
+      justify-content: center;
+    }
+
+    .w-full {
+      width: 100%;
+    }
+
+    .h-full {
+      height: 100%;
+    }
+
+    .object-contain {
+      object-fit: contain;
+    }
+
+    .text-center {
+      text-align: center;
+    }
+
+    .space-y-4 > * + * {
+      margin-top: 1rem;
+    }
+
+    /* Text styles */
+    .text-2xl {
+      font-size: 1.5rem;
+      line-height: 2rem;
+    }
+
+    .text-sm {
+      font-size: 0.875rem;
+      line-height: 1.25rem;
+    }
+
+    .text-xs {
+      font-size: 0.75rem;
+      line-height: 1rem;
+    }
+
+    .font-bold {
+      font-weight: 700;
+    }
+
+    .font-semibold {
+      font-weight: 600;
+    }
+
+    .text-\[\#3498DB\] {
+      color: #3498DB;
+    }
+
+    .text-gray-500 {
+      color: #6b7280;
+    }
+
+    .text-gray-600 {
+      color: #4b5563;
+    }
+
+    .text-gray-400 {
+      color: #9ca3af;
+    }
+
+    /* Spacing */
+    .mb-2 {
+      margin-bottom: 0.5rem;
+    }
+
+    .mb-4 {
+      margin-bottom: 1rem;
+    }
+
+    .mt-1 {
+      margin-top: 0.25rem;
+    }
+
+    .mt-3 {
+      margin-top: 0.75rem;
+    }
+
+    .ml-3 {
+      margin-left: 0.75rem;
+    }
+
+    .p-2 {
+      padding: 0.5rem;
+    }
+
+    .p-3 {
+      padding: 0.75rem;
+    }
+
+    .p-4 {
+      padding: 1rem;
+    }
+
+    .px-2 {
+      padding-left: 0.5rem;
+      padding-right: 0.5rem;
+    }
+
+    .py-1 {
+      padding-top: 0.25rem;
+      padding-bottom: 0.25rem;
+    }
+
+    /* Form elements */
+    input[type="range"] {
+      width: 100%;
+    }
+
+    select {
+      width: 100%;
+      border: 1px solid #d1d5db;
+      border-radius: 0.5rem;
+      padding: 0.5rem;
+    }
+
+    .rounded-lg {
+      border-radius: 0.5rem;
+    }
+
+    .rounded-md {
+      border-radius: 0.375rem;
+    }
+
+    .border {
+      border-width: 1px;
+    }
+
+    .border-gray-200 {
+      border-color: #e5e7eb;
+    }
+
+    .border-gray-300 {
+      border-color: #d1d5db;
+    }
+
+    .bg-gray-100 {
+      background-color: #f3f4f6;
+    }
+
+    .hover\:bg-gray-200:hover {
+      background-color: #e5e7eb;
+    }
+
+    .align-middle {
+      vertical-align: middle;
+    }
+
+    .w-2\/3 {
+      width: 66.666667%;
+    }
+
+    /* YOLO specific styles */
+    .bg-blue-500 {
+      background-color: #3b82f6;
+    }
+
+    .bg-gray-500 {
+      background-color: #6b7280;
+    }
+
+    .bg-gray-600 {
+      background-color: #4b5563;
+    }
+
+    .hover\:bg-gray-600:hover {
+      background-color: #4b5563;
+    }
+
+    .hover\:bg-blue-600:hover {
+      background-color: #2563eb;
+    }
+
+    .text-white {
+      color: white;
+    }
+
+    .flex-1 {
+      flex: 1 1 0%;
+    }
+
+    .rounded-l-lg {
+      border-top-left-radius: 0.5rem;
+      border-bottom-left-radius: 0.5rem;
+    }
+
+    .rounded-r-lg {
+      border-top-right-radius: 0.5rem;
+      border-bottom-right-radius: 0.5rem;
+    }
+
+    .border-t {
+      border-top-width: 1px;
+    }
+
+    .pt-4 {
+      padding-top: 1rem;
+    }
+
+    .space-y-3 > * + * {
+      margin-top: 0.75rem;
+    }
+
+    input[type="checkbox"] {
+      width: 1rem;
+      height: 1rem;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body class="bg-[#F7F8FA] text-[#222]">
+  <!-- Używamy zarówno klas Tailwind jak i fallback -->
+  <div class="fallback-container max-w-6xl mx-auto p-4">
+    <header class="fallback-card mb-4">
+      <h1 class="text-2xl font-bold text-[#3498DB]">VolleyHub • Zdalna kontrola</h1>
+      <p class="text-sm text-gray-500">Podgląd jednej kamery + sterowanie ekspozycją i gain</p>
+    </header>
+
+    <div class="fallback-grid">
+      <!-- PREVIEW -->
+      <div class="fallback-card lg-col-span-2">
+        <div class="flex items-center justify-between mb-2">
+          <div>
+            <span class="text-sm text-gray-500">Wybrana kamera:</span>
+            <span id="selLabel" class="font-semibold">—</span>
+          </div>
+          <div class="text-xs text-gray-400" id="fpsHint"></div>
+        </div>
+        <div class="aspect-video bg-[#111] rounded-xl overflow-hidden flex items-center justify-center">
+          <img id="preview" class="w-full h-full object-contain" alt="preview" />
+        </div>
+
+        <!-- 🔍 Zoom control -->
+        <div id="zoom-control" class="mt-3 text-center">
+          <label for="zoom-slider" class="text-sm text-gray-600">Zoom:</label>
+          <input
+            type="range"
+            id="zoom-slider"
+            min="1"
+            max="5"
+            step="0.1"
+            value="1"
+            class="w-2/3 align-middle"
+          />
+          <button
+            id="reset-zoom"
+            class="ml-3 text-sm bg-gray-100 px-2 py-1 rounded-md border border-gray-300 hover:bg-gray-200"
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+
+      <!-- PANEL -->
+      <div class="fallback-card space-y-4">
+        <div>
+          <label class="text-sm text-gray-600">Kamera</label>
+          <select id="roleSelect" class="w-full mt-1 border rounded-lg p-2"></select>
+        </div>
+
+        <div>
+          <label class="text-sm text-gray-600">Exposure [µs]</label>
+          <input id="exp" type="range" min="100" max="20000" step="1" class="w-full" />
+          <div class="text-sm text-gray-500"><span id="expVal">—</span></div>
+        </div>
+
+        <div>
+          <label class="text-sm text-gray-600">Gain [dB]</label>
+          <input id="gain" type="range" min="0" max="24" step="0.1" class="w-full" />
+          <div class="text-sm text-gray-500"><span id="gainVal">—</span></div>
+        </div>
+
+        <!-- 🎯 YOLO SECTION -->
+        <div class="border-t border-gray-200 pt-4">
+          <h3 class="text-sm font-semibold text-gray-700 mb-3">🎯 YOLO Detection</h3>
+          
+          <div class="space-y-3">
+            <!-- Toggle YOLO -->
+            <div class="flex items-center justify-between">
+              <label class="text-sm text-gray-600">Enable YOLO</label>
+              <input type="checkbox" id="yolo-toggle" class="rounded" />
+            </div>
+            
+            <!-- Model Path -->
+            <div>
+              <label class="text-sm text-gray-600">Model Path</label>
+              <div class="flex mt-1">
+                <input 
+                  type="text" 
+                  id="yolo-model-path" 
+                  placeholder="path/to/your/model.pt" 
+                  class="flex-1 border rounded-l-lg p-2 text-sm"
+                />
+                <input 
+                  type="file" 
+                  id="yolo-model-file" 
+                  accept=".pt,.onnx,.engine" 
+                  style="display: none;"
+                />
+                <button 
+                  id="yolo-browse-btn" 
+                  class="bg-gray-500 text-white px-3 py-2 text-sm hover:bg-gray-600"
+                >
+                  Browse
+                </button>
+                <button 
+                  id="yolo-load-btn" 
+                  class="bg-blue-500 text-white px-3 py-2 rounded-r-lg text-sm hover:bg-blue-600"
+                >
+                  Load
+                </button>
+              </div>
+            </div>
+            
+            <!-- Image Size -->
+            <div>
+              <label class="text-sm text-gray-600">Image Size</label>
+              <select id="yolo-image-size" class="w-full mt-1 border rounded-lg p-2 text-sm">
+                <option value="320">320px</option>
+                <option value="416">416px</option>
+                <option value="512">512px</option>
+                <option value="640" selected>640px</option>
+                <option value="736">736px</option>
+                <option value="832">832px</option>
+                <option value="1024">1024px</option>
+                <option value="1280">1280px</option>
+              </select>
+            </div>
+            
+            <!-- Device -->
+            <div>
+              <label class="text-sm text-gray-600">Device</label>
+              <select id="yolo-device" class="w-full mt-1 border rounded-lg p-2 text-sm">
+                <option value="cpu">CPU</option>
+                <option value="cuda">GPU (CUDA)</option>
+              </select>
+            </div>
+            
+            <!-- Class ID -->
+            <div>
+              <label class="text-sm text-gray-600">Ball Class ID</label>
+              <input 
+                type="number" 
+                id="yolo-class-id" 
+                value="0" 
+                min="0" 
+                max="999" 
+                class="w-full mt-1 border rounded-lg p-2 text-sm"
+              />
+            </div>
+            
+            <!-- Confidence -->
+            <div>
+              <label class="text-sm text-gray-600">Confidence Threshold</label>
+              <input 
+                type="range" 
+                id="yolo-confidence" 
+                min="0.1" 
+                max="1.0" 
+                step="0.05" 
+                value="0.5" 
+                class="w-full mt-1"
+              />
+              <div class="text-sm text-gray-500"><span id="yolo-confidence-val">0.5</span></div>
+            </div>
+            
+            <!-- Status -->
+            <div class="text-xs text-gray-500" id="yolo-status">YOLO disabled</div>
+          </div>
+        </div>
+
+        <div class="text-xs text-gray-400" id="status"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=2"></script>
+
+</body>
+</html>

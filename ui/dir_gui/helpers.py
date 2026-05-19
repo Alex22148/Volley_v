@@ -1,0 +1,3 @@
+"""
+Drobne utility dla GUI.
+"""

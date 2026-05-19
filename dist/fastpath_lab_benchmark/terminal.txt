@@ -1,0 +1,84 @@
+C:\Users\Hyperbook\python_project\VolleyHub_K\.venv\Scripts\python.exe C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\fast_path_v1\scripts\10_compare_pt_onnx_engine_detections.py 
+[INFO] mode=synthetic | images will be generated per case at target imgsz
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\onnx\static\best__fp16_v1088x1920_b4.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.26.0 with CUDAExecutionProvider
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\static\best__fp16_v1088x1920_b4.engine for TensorRT inference...
+[05/15/2026-09:29:48] [TRT] [I] Loaded engine size: 6 MiB
+[05/15/2026-09:29:48] [TRT] [I] [MemUsageChange] TensorRT-managed allocation in IExecutionContext creation: CPU +0, GPU +256, now: CPU 0, GPU 266 (MiB)
+           [TIME] v1088x1920_b4 (imgsz=1088x1920, b=4) | PT=18.603 ms, ONNX=19.207 ms (0.97x), ENGINE=11.639 ms (1.60x)
+[STAGE per_image_ms] PT color/pre/inf/post=0.254/1.840/2.471/0.137 | ONNX color/pre/inf/post=0.252/1.835/2.622/0.143 | ENGINE color/pre/inf/post=0.250/1.836/0.731/0.141
+[CLOCK per_image_ms] PT predict/e2e=18.603/18.857 | ONNX predict/e2e=19.207/19.459 | ENGINE predict/e2e=11.639/11.889
+[DONE] v1088x1920_b4 -> C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\fast_path_v1\reports\backend_compare\test_005\case_001_v1088x1920_b4
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\onnx\static\best__fp16_v1088x1920_b8.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.26.0 with CUDAExecutionProvider
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\static\best__fp16_v1088x1920_b8.engine for TensorRT inference...
+[05/15/2026-09:31:48] [TRT] [I] Loaded engine size: 6 MiB
+[05/15/2026-09:31:48] [TRT] [I] [MemUsageChange] TensorRT-managed allocation in IExecutionContext creation: CPU +0, GPU +511, now: CPU 0, GPU 524 (MiB)
+[TIME] v1088x1920_b8 (imgsz=1088x1920, b=8) | PT=18.429 ms, ONNX=18.915 ms (0.97x), ENGINE=11.400 ms (1.62x)
+[STAGE per_image_ms] PT color/pre/inf/post=0.128/0.914/1.232/0.062 | ONNX color/pre/inf/post=0.127/0.912/1.295/0.063 | ENGINE color/pre/inf/post=0.128/0.911/0.356/0.063
+[CLOCK per_image_ms] PT predict/e2e=18.429/18.557 | ONNX predict/e2e=18.915/19.042 | ENGINE predict/e2e=11.400/11.528
+[DONE] v1088x1920_b8 -> C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\fast_path_v1\reports\backend_compare\test_005\case_002_v1088x1920_b8
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\onnx\static\best__fp16_v640_b12.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.26.0 with CUDAExecutionProvider
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\static\best__fp16_v640_b12.engine for TensorRT inference...
+[05/15/2026-09:35:22] [TRT] [I] Loaded engine size: 6 MiB
+[05/15/2026-09:35:23] [TRT] [I] [MemUsageChange] TensorRT-managed allocation in IExecutionContext creation: CPU +0, GPU +148, now: CPU 0, GPU 154 (MiB)
+[TIME] v640_b12 (imgsz=640x640, b=12) | PT=3.986 ms, ONNX=4.066 ms (0.98x), ENGINE=2.567 ms (1.55x)
+[STAGE per_image_ms] PT color/pre/inf/post=0.017/0.125/0.167/0.023 | ONNX color/pre/inf/post=0.017/0.125/0.174/0.023 | ENGINE color/pre/inf/post=0.017/0.125/0.049/0.023
+[CLOCK per_image_ms] PT predict/e2e=3.986/4.003 | ONNX predict/e2e=4.066/4.082 | ENGINE predict/e2e=2.567/2.584
+[DONE] v640_b12 -> C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\fast_path_v1\reports\backend_compare\test_005\case_003_v640_b12
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\onnx\static\best__fp16_v640_b4.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.26.0 with CUDAExecutionProvider
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\static\best__fp16_v640_b4.engine for TensorRT inference...
+[05/15/2026-09:36:35] [TRT] [I] Loaded engine size: 7 MiB
+[05/15/2026-09:36:35] [TRT] [I] [MemUsageChange] TensorRT-managed allocation in IExecutionContext creation: CPU +0, GPU +37, now: CPU 0, GPU 43 (MiB)
+[TIME] v640_b4 (imgsz=640x640, b=4) | PT=4.584 ms, ONNX=4.452 ms (1.03x), ENGINE=2.842 ms (1.61x)
+[STAGE per_image_ms] PT color/pre/inf/post=0.050/0.366/0.638/0.082 | ONNX color/pre/inf/post=0.050/0.359/0.606/0.090 | ENGINE color/pre/inf/post=0.050/0.360/0.205/0.088
+[CLOCK per_image_ms] PT predict/e2e=4.584/4.634 | ONNX predict/e2e=4.452/4.502 | ENGINE predict/e2e=2.842/2.892
+[DONE] v640_b4 -> C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\fast_path_v1\reports\backend_compare\test_005\case_004_v640_b4
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\onnx\static\best__fp16_v640_b8.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.26.0 with CUDAExecutionProvider
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\static\best__fp16_v640_b8.engine for TensorRT inference...
+[05/15/2026-09:37:07] [TRT] [I] Loaded engine size: 6 MiB
+[05/15/2026-09:37:07] [TRT] [I] [MemUsageChange] TensorRT-managed allocation in IExecutionContext creation: CPU +0, GPU +99, now: CPU 0, GPU 105 (MiB)
+[TIME] v640_b8 (imgsz=640x640, b=8) | PT=3.905 ms, ONNX=4.013 ms (0.97x), ENGINE=2.594 ms (1.51x)
+[STAGE per_image_ms] PT color/pre/inf/post=0.026/0.182/0.244/0.036 | ONNX color/pre/inf/post=0.025/0.180/0.258/0.037 | ENGINE color/pre/inf/post=0.024/0.181/0.080/0.037
+[CLOCK per_image_ms] PT predict/e2e=3.905/3.931 | ONNX predict/e2e=4.013/4.038 | ENGINE predict/e2e=2.594/2.619
+[DONE] v640_b8 -> C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\fast_path_v1\reports\backend_compare\test_005\case_005_v640_b8
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\onnx\static\best__fp16_v960_b12.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.26.0 with CUDAExecutionProvider
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\static\best__fp16_v960_b12.engine for TensorRT inference...
+[05/15/2026-09:37:58] [TRT] [I] Loaded engine size: 7 MiB
+[05/15/2026-09:37:58] [TRT] [I] [MS] Running engine with multi stream info
+[05/15/2026-09:37:58] [TRT] [I] [MS] Number of aux streams is 2
+[05/15/2026-09:37:58] [TRT] [I] [MS] Number of total worker streams is 3
+[05/15/2026-09:37:58] [TRT] [I] [MS] The main stream provided by execute/enqueue calls is the first worker stream
+[05/15/2026-09:37:58] [TRT] [I] [MemUsageChange] TensorRT-managed allocation in IExecutionContext creation: CPU +0, GPU +277, now: CPU 0, GPU 284 (MiB)
+[TIME] v960_b12 (imgsz=960x960, b=12) | PT=8.456 ms, ONNX=8.679 ms (0.97x), ENGINE=5.140 ms (1.65x)
+[STAGE per_image_ms] PT color/pre/inf/post=0.034/0.271/0.377/0.027 | ONNX color/pre/inf/post=0.036/0.269/0.398/0.028 | ENGINE color/pre/inf/post=0.036/0.269/0.102/0.028
+[CLOCK per_image_ms] PT predict/e2e=8.456/8.490 | ONNX predict/e2e=8.679/8.715 | ENGINE predict/e2e=5.140/5.176
+[DONE] v960_b12 -> C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\fast_path_v1\reports\backend_compare\test_005\case_006_v960_b12
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\onnx\static\best__fp16_v960_b4.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.26.0 with CUDAExecutionProvider
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\static\best__fp16_v960_b4.engine for TensorRT inference...
+[05/15/2026-09:40:25] [TRT] [I] Loaded engine size: 7 MiB
+[05/15/2026-09:40:25] [TRT] [I] [MemUsageChange] TensorRT-managed allocation in IExecutionContext creation: CPU +0, GPU +84, now: CPU 0, GPU 91 (MiB)
+[TIME] v960_b4 (imgsz=960x960, b=4) | PT=8.570 ms, ONNX=8.886 ms (0.96x), ENGINE=5.513 ms (1.55x)
+[STAGE per_image_ms] PT color/pre/inf/post=0.104/0.825/1.113/0.105 | ONNX color/pre/inf/post=0.106/0.815/1.200/0.109 | ENGINE color/pre/inf/post=0.106/0.817/0.357/0.108
+[CLOCK per_image_ms] PT predict/e2e=8.570/8.674 | ONNX predict/e2e=8.886/8.992 | ENGINE predict/e2e=5.513/5.619
+[DONE] v960_b4 -> C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\fast_path_v1\reports\backend_compare\test_005\case_007_v960_b4
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\onnx\static\best__fp16_v960_b8.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.26.0 with CUDAExecutionProvider
+Loading C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\static\best__fp16_v960_b8.engine for TensorRT inference...
+[05/15/2026-09:41:23] [TRT] [I] Loaded engine size: 7 MiB
+[05/15/2026-09:41:23] [TRT] [I] [MS] Running engine with multi stream info
+[05/15/2026-09:41:23] [TRT] [I] [MS] Number of aux streams is 1
+[05/15/2026-09:41:23] [TRT] [I] [MS] Number of total worker streams is 2
+[05/15/2026-09:41:23] [TRT] [I] [MS] The main stream provided by execute/enqueue calls is the first worker stream
+[05/15/2026-09:41:23] [TRT] [I] [MemUsageChange] TensorRT-managed allocation in IExecutionContext creation: CPU +0, GPU +166, now: CPU 0, GPU 173 (MiB)
+[TIME] v960_b8 (imgsz=960x960, b=8) | PT=8.294 ms, ONNX=8.538 ms (0.97x), ENGINE=5.226 ms (1.59x)
+[STAGE per_image_ms] PT color/pre/inf/post=0.051/0.410/0.538/0.043 | ONNX color/pre/inf/post=0.053/0.406/0.572/0.045 | ENGINE color/pre/inf/post=0.053/0.406/0.158/0.045
+[CLOCK per_image_ms] PT predict/e2e=8.294/8.345 | ONNX predict/e2e=8.538/8.590 | ENGINE predict/e2e=5.226/5.278
+[DONE] v960_b8 -> C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\fast_path_v1\reports\backend_compare\test_005\case_008_v960_b8
+
+Process finished with exit code 0

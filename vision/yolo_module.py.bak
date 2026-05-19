@@ -1,0 +1,1103 @@
+﻿#!/usr/bin/env python3
+"""
+YOLO module dla VolleyHub
+- obsĹ‚uga batch 4x1
+- wejĹ›cie: raw Bayer RG8 albo gotowe BGR/RGB
+- inferencja: Ultralytics YOLO na CPU/CUDA
+"""
+
+import os
+import time
+from typing import Any, Dict, List, Optional
+
+
+import cv2
+import numpy as np
+import torch
+# YOLO import
+try:
+    from ultralytics import YOLO
+    YOLO_AVAILABLE = True
+    print("[YOLO] ... Ultralytics YOLO dostÄ™pny")
+except ImportError:
+    YOLO_AVAILABLE = False
+    YOLO = None
+    print("[YOLO] âš ď¸Ź Ultralytics YOLO niedostÄ™pny - zainstaluj: pip install ultralytics")
+
+
+SUPPORTED_BACKENDS = ("ultralytics", "tensorrt")
+MIN_TRT_ENGINE_BYTES = 1024
+
+
+class VolleyHubYOLO:
+    """YOLO zintegrowany z VolleyHub"""
+
+    def __init__(self):
+        self.model = None
+        self.enabled = False
+
+        self.confidence_threshold = 0.25
+        self.ball_class_id = 0
+        self.custom_model_path = None
+        self.image_size = 640
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.use_half = str(self.device).startswith("cuda") and torch.cuda.is_available()
+        self.require_contiguous = True
+        self.inference_backend = "ultralytics"
+        self.trt_engine_path: Optional[str] = None
+        self.trt_dynamic = False
+        self.trt_workspace_gb = 2.0
+        self.preprocess_backend = "cpu"
+        # This build must not depend on cv2.cuda at runtime.
+        # Future GPU debayer should be attached through a dedicated adapter.
+        self._cuda_demosaic_available = False
+
+        # Bayer pattern z kamer
+        # Dla Twojego przypadku: Bayer BG8
+        self.bayer_code = cv2.COLOR_BAYER_BG2BGR
+
+        # cache / ostatnie detekcje
+        self.detection_cache = {}
+        self.last_detections: Dict[str, List[Dict[str, Any]]] = {}
+
+        # batch / wydajnoĹ›Ä‡
+        self.batch_size = 8
+        self.detection_times: List[float] = []
+        self.max_time_samples = 30
+        self.last_perf_report = 0.0
+        self.total_frames_processed = 0
+        self.debug_logs = False
+        self._log_last_ts: Dict[str, float] = {}
+
+
+        print(f"[YOLO] 🎯 VolleyHubYOLO init on device={self.device}")
+
+    def _log_throttled(self, key: str, message: str, interval_s: float = 4.0) -> None:
+        now = time.time()
+        last = float(self._log_last_ts.get(key, 0.0) or 0.0)
+        if (now - last) >= max(0.1, float(interval_s)):
+            print(message)
+            self._log_last_ts[key] = now
+
+    def _sync_model_runtime_device(self) -> None:
+        """
+        WyrĂłwnuje urzÄ…dzenie/dtype dla wewnÄ™trznego moduĹ‚u torch (gdy backend to .pt).
+        Dla ONNX/engine ta operacja bywa nieistotna i jest bezpiecznie ignorowana.
+        """
+        if self.model is None:
+            return
+        try:
+            try:
+                if hasattr(self.model, "to"):
+                    self.model.to(self.device)
+            except Exception:
+                pass
+            inner = getattr(self.model, "model", None)
+            if isinstance(inner, torch.nn.Module):
+                inner.to(self.device)
+                if str(self.device).startswith("cuda") and self.use_half:
+                    inner.half()
+                else:
+                    inner.float()
+        except Exception as e:
+            self._log_throttled("runtime_sync_error", f"[YOLO] âš ď¸Ź Runtime device sync skipped: {e}", interval_s=6.0)
+
+    # ===========================================================
+    # Preprocessing
+    # ===========================================================
+
+    def set_batch_size(self, batch_size: int):
+        """
+        Ustawia chunk size dla inferencji YOLO:
+        ile obrazĂłw jednoczeĹ›nie trafia do modelu w jednym wywoĹ‚aniu.
+        """
+        batch_size = max(1, min(64, int(batch_size)))
+        self.batch_size = batch_size
+        print(f"[YOLO] đź“¦ Inference batch size: {self.batch_size}")
+
+    def _prepare_frame_for_yolo(self, frame: np.ndarray) -> np.ndarray:
+        if frame is None:
+            raise ValueError("frame is None")
+
+        if not isinstance(frame, np.ndarray):
+            raise TypeError(f"frame must be np.ndarray, got {type(frame)}")
+
+        # Gotowy obraz 3-kanałowy uint8 -> zwróć bez dodatkowej konwersji
+        if frame.ndim == 3 and frame.shape[2] == 3:
+            if frame.dtype != np.uint8:
+                frame = frame.astype(np.uint8, copy=False)
+
+            if self.require_contiguous and not frame.flags["C_CONTIGUOUS"]:
+                frame = np.ascontiguousarray(frame)
+
+            return frame
+
+        # Surowy Bayer / mono 2D -> CPU debayer
+        if frame.ndim == 2:
+            if frame.dtype != np.uint8:
+                frame = frame.astype(np.uint8, copy=False)
+
+            bgr = cv2.cvtColor(frame, self.bayer_code)
+
+            if self.require_contiguous and not bgr.flags["C_CONTIGUOUS"]:
+                bgr = np.ascontiguousarray(bgr)
+
+            return bgr
+
+        raise ValueError(f"Unsupported frame shape={frame.shape}, dtype={frame.dtype}")
+
+    def set_preprocess_backend(self, backend: str) -> bool:
+        backend = str(backend or "").strip().lower()
+        if backend not in ("cpu", "cuda"):
+            print(f"[YOLO] âš ď¸Ź Unsupported preprocess backend: {backend}")
+            return False
+
+        if backend == "cuda":
+            print("[YOLO] preprocess_backend=cuda disabled in this build; use cpu")
+            return False
+
+        self.preprocess_backend = backend
+        print(f"[YOLO] ⚙️ Preprocess backend: {self.preprocess_backend}")
+        return True
+
+
+
+    def set_bayer_pattern(self, pattern: str) -> bool:
+        """
+        Ustawia pattern Bayera.
+        ObsĹ‚ugiwane:
+        RG, BG, GR, GB
+        """
+        mapping = {
+            "RG": cv2.COLOR_BAYER_RG2BGR,
+            "BG": cv2.COLOR_BAYER_BG2BGR,
+            "GR": cv2.COLOR_BAYER_GR2BGR,
+            "GB": cv2.COLOR_BAYER_GB2BGR,
+        }
+        pattern = str(pattern).strip().upper()
+        code = mapping.get(pattern)
+        if code is None:
+            print(f"[YOLO] âš ď¸Ź Unsupported Bayer pattern: {pattern}")
+            return False
+
+        self.bayer_code = code
+        print(f"[YOLO] đźŽ¨ Bayer pattern set to: {pattern}")
+        return True
+
+    def set_backend(self, backend: str) -> bool:
+        backend = str(backend).strip().lower()
+        if backend not in SUPPORTED_BACKENDS:
+            print(f"[YOLO] ⚠️ Unsupported backend: {backend}")
+            return False
+        if backend == "tensorrt":
+            if not str(self.device).startswith("cuda") or not torch.cuda.is_available():
+                print("[YOLO] ⚠️ TensorRT backend requires CUDA device")
+                return False
+            if not self.trt_engine_path:
+                print("[YOLO] ⚠️ TensorRT backend requires configured .engine path")
+                return False
+        self.inference_backend = backend
+        print(f"[YOLO] ⚙️ Inference backend: {backend}")
+        return True
+
+    def set_tensorrt_engine(self, engine_path: str) -> bool:
+        engine_path = str(engine_path or "").strip()
+        if not engine_path:
+            self.trt_engine_path = None
+            print("[YOLO] â„ąď¸Ź TensorRT engine path cleared")
+            return True
+        if not os.path.exists(engine_path):
+            print(f"[YOLO] ⚠️ TensorRT engine file not found: {engine_path}")
+            return False
+        if not engine_path.lower().endswith(".engine"):
+            print(f"[YOLO] ⚠️ TensorRT engine must end with .engine: {engine_path}")
+            return False
+        try:
+            size_b = int(os.path.getsize(engine_path))
+        except Exception:
+            size_b = 0
+        if size_b < MIN_TRT_ENGINE_BYTES:
+            print(f"[YOLO] ⚠️ TensorRT engine file looks invalid or too small: {engine_path}")
+            return False
+
+        self.trt_engine_path = engine_path
+        print(f"[YOLO] ⚙️ TensorRT engine path: {engine_path}")
+        return True
+
+    def configure_tensorrt(self, dynamic: Optional[bool] = None, workspace_gb: Optional[float] = None) -> None:
+        if dynamic is not None:
+            self.trt_dynamic = bool(dynamic)
+        if workspace_gb is not None:
+            try:
+                self.trt_workspace_gb = max(0.5, float(workspace_gb))
+            except Exception:
+                pass
+
+    def _resolve_model_path_for_backend(self, model_path: str) -> str:
+        path = str(model_path or "").strip()
+        if self.inference_backend != "tensorrt":
+            return path
+        if self.trt_engine_path and os.path.exists(self.trt_engine_path):
+            return self.trt_engine_path
+        return ""
+
+    # ===========================================================
+    # Model management
+    # ===========================================================
+
+    def load_model(self, model_path: str = "best.pt") -> bool:
+        """Ĺaduje model YOLO"""
+        if not YOLO_AVAILABLE:
+            print("[YOLO] âťŚ Ultralytics not available")
+            return False
+
+        try:
+            print(f"[YOLO] Ladowanie modelu: {model_path}")
+            requested_path = os.path.normpath(str(model_path))
+            load_path = self._resolve_model_path_for_backend(requested_path)
+            if self.inference_backend == "tensorrt":
+                if not str(self.device).startswith("cuda") or not torch.cuda.is_available():
+                    print("[YOLO] TensorRT backend requires CUDA device")
+                    return False
+                if not load_path:
+                    print("[YOLO] TensorRT backend requires valid .engine path")
+                    return False
+                if not load_path.lower().endswith(".engine"):
+                    print("[YOLO] TensorRT backend requires .engine file")
+                    return False
+                if not os.path.isfile(load_path):
+                    print(f"[YOLO] TensorRT engine file not found: {load_path}")
+                    return False
+            self.model = YOLO(load_path)
+            self.use_half = str(self.device).startswith("cuda") and torch.cuda.is_available()
+            self._sync_model_runtime_device()
+
+            if str(self.device).startswith("cuda"):
+                try:
+                    torch.backends.cudnn.benchmark = True
+                except Exception:
+                    pass
+
+            # try:
+            #     if self.use_half:
+            #         self.model.model.half()
+            #     else:
+            #         self.model.model.float()
+            # except Exception:
+            #     pass
+            self.custom_model_path = load_path
+
+            # Warmup
+            print("[YOLO] Warmup...")
+            test_batch = [
+                np.zeros((self.image_size, self.image_size, 3), dtype=np.uint8)
+                for _ in range(self.batch_size)
+            ]
+            try:
+                # 1) Always warm up in FP32 first for stable device/dtype init.
+                _ = self.model(
+                    test_batch,
+                    imgsz=self.image_size,
+                    device=self.device,
+                    verbose=False,
+                    half=False,
+                )
+                # 2) If half is requested, probe it once; disable on mismatch.
+                if self.use_half:
+                    _ = self.model(
+                        test_batch,
+                        imgsz=self.image_size,
+                        device=self.device,
+                        verbose=False,
+                        half=True,
+                    )
+            except RuntimeError as warmup_err:
+                msg = str(warmup_err)
+                dtype_mismatch = (
+                    "expected mat1 and mat2 to have the same dtype" in msg.lower()
+                    or "half != float" in msg.lower()
+                    or ("mat1 and mat2" in msg.lower() and "dtype" in msg.lower())
+                )
+                device_mismatch = "expected all tensors to be on the same device" in msg.lower()
+                if device_mismatch or dtype_mismatch:
+                    print("[YOLO]  CUDA warmup mismatch -> forcing FP32 on CUDA")
+                    self.use_half = False
+                    self._sync_model_runtime_device()
+                    _ = self.model(
+                        test_batch,
+                        imgsz=self.image_size,
+                        device=self.device,
+                        verbose=False,
+                        half=False,
+                    )
+                else:
+                    raise
+
+            print(f"[YOLO] Model załadowany na {self.device} (batch_size={self.batch_size})")
+            return True
+
+        except Exception as e:
+            print(f"[YOLO] blad ladowania modelu na {self.device}: {e}")
+            # TensorRT backend: no CPU fallback allowed — fail hard.
+            if self.inference_backend == "tensorrt":
+                print("[YOLO] TensorRT load failed; no CPU fallback for tensorrt backend")
+                self.model = None
+                return False
+            # Non-TensorRT: attempt CPU fallback so the app remains functional.
+            if str(self.device).startswith("cuda"):
+                try:
+                    print("[YOLO] Fallback load on CPU...")
+                    self.device = "cpu"
+                    self.use_half = False
+                    self.model = YOLO(load_path)
+                    self._sync_model_runtime_device()
+                    _ = self.model(
+                        [np.zeros((self.image_size, self.image_size, 3), dtype=np.uint8)],
+                        imgsz=self.image_size,
+                        device=self.device,
+                        verbose=False,
+                        half=False,
+                    )
+                    self.custom_model_path = load_path
+                    print("[YOLO] Model zaladowany awaryjnie na CPU")
+                    return True
+                except Exception as e_cpu:
+                    print(f"[YOLO] CPU fallback failed: {e_cpu}")
+            self.model = None
+            return False
+
+    def load_custom_model(self, model_path: str) -> bool:
+        """Ĺaduje custom model YOLO"""
+        if not os.path.exists(model_path):
+            print(f"[YOLO] âťŚ Plik nie istnieje: {model_path}")
+            return False
+
+        if not model_path.lower().endswith((".pt", ".onnx", ".engine")):
+            print(f"[YOLO] âťŚ NieobsĹ‚ugiwany format modelu: {model_path}")
+            return False
+
+        if model_path.lower().endswith(".engine"):
+            self.trt_engine_path = model_path
+        return self.load_model(model_path)
+
+    def enable(self) -> bool:
+        """WĹ‚Ä…cza detekcjÄ™ YOLO"""
+        if self.model is None:
+            if not self.load_model():
+                return False
+
+        self.enabled = True
+        print("[YOLO] ▶️ Detekcja wĹ‚Ä…czona")
+        return True
+
+    def disable(self):
+        """WyĹ‚Ä…cza detekcjÄ™ YOLO"""
+        self.enabled = False
+        self.detection_cache.clear()
+        self.last_detections.clear()
+        print("[YOLO] âŹąď¸Ź Detekcja wyĹ‚Ä…czona")
+
+    # ===========================================================
+    # Detection
+    # ===========================================================
+
+    def _run_model_in_chunks(self, frames: List[np.ndarray]) -> List[Any]:
+        all_results: List[Any] = []
+
+        if not frames:
+            return all_results
+
+        chunk_size = max(1, int(self.batch_size))
+
+        for i in range(0, len(frames), chunk_size):
+            chunk = frames[i:i + chunk_size]
+
+            chunk_results = self.model(
+                chunk,
+                verbose=False,
+                imgsz=self.image_size,
+                device=self.device,
+                conf=self.confidence_threshold,
+                classes=[self.ball_class_id],
+                max_det=1,
+                half=self.use_half,
+            )
+
+            if chunk_results is not None:
+                all_results.extend(chunk_results)
+
+        return all_results
+
+    def detect_ball_in_batch(
+            self,
+            frames_by_step: List[List[np.ndarray]],
+            roles: List[str]
+    ) -> Dict[str, Any]:
+        steps_in = len(frames_by_step)
+        frames_in = sum(len(step) for step in frames_by_step) if frames_by_step else 0
+
+        empty_out = [{role: [] for role in roles} for _ in range(steps_in)]
+
+        if not self.enabled or self.model is None:
+            return {
+                "detections": empty_out,
+                "meta": {
+                    "frames_in": frames_in,
+                    "frames_valid": 0,
+                    "frames_processed": 0,
+                    "objects_detected": 0,
+                    "infer_ms": 0.0,
+                    "prepare_ms": 0.0,
+                    "forward_ms": 0.0,
+                    "post_ms": 0.0,
+                    "steps_in": steps_in,
+                    "steps_out": 0,
+                }
+            }
+
+        if not frames_by_step:
+            return {
+                "detections": [],
+                "meta": {
+                    "frames_in": 0,
+                    "frames_valid": 0,
+                    "frames_processed": 0,
+                    "objects_detected": 0,
+                    "infer_ms": 0.0,
+                    "prepare_ms": 0.0,
+                    "forward_ms": 0.0,
+                    "post_ms": 0.0,
+                    "steps_in": 0,
+                    "steps_out": 0,
+                }
+            }
+
+        num_roles = len(roles)
+
+        for step_idx, step_frames in enumerate(frames_by_step):
+            if len(step_frames) != num_roles:
+                raise ValueError(
+                    f"Krok {step_idx} ma {len(step_frames)} klatek, oczekiwano {num_roles}"
+                )
+
+        try:
+            perf_counter = time.perf_counter
+            t_total0 = perf_counter()
+
+            out: List[Dict[str, List[Dict[str, Any]]]] = [
+                {role: [] for role in roles} for _ in range(steps_in)
+            ]
+
+            flat_frames: List[np.ndarray] = []
+            flat_index: List[tuple[int, int]] = []
+            frames_valid = 0
+
+            prepare_frame = self._prepare_frame_for_yolo
+            append_frame = flat_frames.append
+            append_index = flat_index.append
+
+            t_prepare0 = perf_counter()
+
+            for step_idx, step_frames in enumerate(frames_by_step):
+                for role_idx, frame in enumerate(step_frames):
+                    try:
+                        prepared = prepare_frame(frame)
+                    except Exception as e:
+                        self._log_throttled(
+                            "prepare_failed",
+                            f"[YOLO] prepare failed step={step_idx} role={roles[role_idx]}: {e}",
+                            interval_s=4.0,
+                        )
+                        continue
+                    append_frame(prepared)
+                    append_index((step_idx, role_idx))
+                    frames_valid += 1
+
+            prepare_ms = (perf_counter() - t_prepare0) * 1000.0
+
+            if not flat_frames:
+                return {
+                    "detections": out,
+                    "meta": {
+                        "frames_in": frames_in,
+                        "frames_valid": 0,
+                        "frames_processed": 0,
+                        "objects_detected": 0,
+                        "infer_ms": prepare_ms,
+                        "prepare_ms": prepare_ms,
+                        "forward_ms": 0.0,
+                        "post_ms": 0.0,
+                        "steps_in": steps_in,
+                        "steps_out": len(out),
+                    }
+                }
+
+            use_cuda = str(self.device).startswith("cuda") and torch.cuda.is_available()
+            profile_timing = getattr(self, "profile_yolo_timing", False)
+
+            if use_cuda and profile_timing:
+                torch.cuda.synchronize()
+
+            t_forward0 = perf_counter()
+
+            # NOTE:
+            # `torch.inference_mode()` can trigger runtime issues with some Ultralytics/PyTorch
+            # paths ("Inference tensors do not track version counter.").
+            # `no_grad()` keeps graph disabled but is less restrictive and more compatible.
+            try:
+                with torch.no_grad():
+                    results = self._run_model_in_chunks(flat_frames)
+            except RuntimeError as e:
+                if "version counter" not in str(e).lower():
+                    raise
+                print("[YOLO] âš ď¸Ź inference_mode/no_grad compatibility fallback triggered; retrying")
+                with torch.no_grad():
+                    results = self._run_model_in_chunks(flat_frames)
+
+            if use_cuda and profile_timing:
+                torch.cuda.synchronize()
+
+            forward_ms = (perf_counter() - t_forward0) * 1000.0
+
+            self._update_performance_stats(forward_ms)
+            self.total_frames_processed += len(flat_frames)
+
+            if results is None:
+                return {
+                    "detections": out,
+                    "meta": {
+                        "frames_in": frames_in,
+                        "frames_valid": frames_valid,
+                        "frames_processed": 0,
+                        "objects_detected": 0,
+                        "infer_ms": (perf_counter() - t_total0) * 1000.0,
+                        "prepare_ms": prepare_ms,
+                        "forward_ms": forward_ms,
+                        "post_ms": 0.0,
+                        "steps_in": steps_in,
+                        "steps_out": len(out),
+                    }
+                }
+
+            frames_processed = min(len(results), len(flat_frames))
+            objects_detected = 0
+            batch_timestamp = time.time()
+
+            t_post0 = perf_counter()
+
+            for item_idx, ((step_idx, role_idx), result) in enumerate(zip(flat_index, results)):
+                boxes = getattr(result, "boxes", None)
+                if boxes is None:
+                    continue
+                if not hasattr(boxes, "__len__") or len(boxes) == 0:
+                    continue
+
+                role_name = str(roles[role_idx])
+                dets: List[Dict[str, Any]] = []
+                try:
+                    fh, fw = flat_frames[item_idx].shape[:2]
+                except Exception:
+                    fh, fw = 1080, 1920
+
+                for box in list(boxes):
+                    class_id = int(box.cls[0])
+                    confidence = float(box.conf[0])
+
+                    if class_id != self.ball_class_id or confidence < self.confidence_threshold:
+                        continue
+
+                    x1, y1, x2, y2 = box.xyxy[0].tolist()
+
+                    dets.append({
+                        "x": int(x1),
+                        "y": int(y1),
+                        "width": int(x2 - x1),
+                        "height": int(y2 - y1),
+                        "center_x": int((x1 + x2) * 0.5),
+                        "center_y": int((y1 + y2) * 0.5),
+                        "frame_w": int(fw),
+                        "frame_h": int(fh),
+                        "confidence": confidence,
+                        "timestamp": batch_timestamp,
+                        "detection_time_ms": forward_ms,
+                        "step_idx": step_idx,
+                        "role": role_name,
+                    })
+                    objects_detected += 1
+
+                if dets:
+                    self.last_detections[role_name] = dets
+                    out[step_idx][role_name] = dets
+
+            post_ms = (perf_counter() - t_post0) * 1000.0
+            infer_ms_total = (perf_counter() - t_total0) * 1000.0
+
+            return {
+                "detections": out,
+                "meta": {
+                    "frames_in": frames_in,
+                    "frames_valid": frames_valid,
+                    "frames_processed": frames_processed,
+                    "objects_detected": objects_detected,
+                    "infer_ms": infer_ms_total,
+                    "prepare_ms": prepare_ms,
+                    "forward_ms": forward_ms,
+                    "post_ms": post_ms,
+                    "steps_in": steps_in,
+                    "steps_out": len(out),
+                }
+            }
+
+        except Exception as e:
+            self._log_throttled("batch_detect_error", f"[YOLO] Batch detect error: {e}", interval_s=4.0)
+            return {
+                "detections": empty_out,
+                "meta": {
+                    "frames_in": frames_in,
+                    "frames_valid": 0,
+                    "frames_processed": 0,
+                    "objects_detected": 0,
+                    "infer_ms": 0.0,
+                    "prepare_ms": 0.0,
+                    "forward_ms": 0.0,
+                    "post_ms": 0.0,
+                    "steps_in": steps_in,
+                    "steps_out": 0,
+                }
+            }
+
+
+
+
+    def detect_ball_in_frame(self, frame: np.ndarray, role: str) -> List[Dict[str, Any]]:
+        """
+        Detekcja w pojedynczej klatce.
+        ObsĹ‚uguje teĹĽ raw Bayer RG8.
+        """
+        if not self.enabled or self.model is None:
+            return []
+
+        try:
+            prepared = self._prepare_frame_for_yolo(frame)
+
+
+            start_time = time.time()
+            results = self.model(
+                prepared,
+                verbose=False,
+                imgsz=self.image_size,
+                device=self.device,
+                conf=self.confidence_threshold,
+                classes=[self.ball_class_id],
+                max_det=1,
+                half=self.use_half,
+            )
+            detection_time_ms = (time.time() - start_time) * 1000.0
+
+            self._update_performance_stats(detection_time_ms)
+            self.total_frames_processed += 1
+
+            if results is None:
+                return []
+
+            detections: List[Dict[str, Any]] = []
+
+            for result in list(results):
+                boxes = getattr(result, "boxes", None)
+                if boxes is None:
+                    continue
+                for box in list(boxes):
+                    class_id = int(box.cls[0])
+                    confidence = float(box.conf[0])
+
+                    if class_id == self.ball_class_id and confidence >= self.confidence_threshold:
+                        x1, y1, x2, y2 = box.xyxy[0].tolist()
+                        detections.append({
+                            "x": int(x1),
+                            "y": int(y1),
+                            "width": int(x2 - x1),
+                            "height": int(y2 - y1),
+                            "center_x": int((x1 + x2) / 2),
+                            "center_y": int((y1 + y2) / 2),
+                            "confidence": confidence,
+                            "timestamp": time.time(),
+                            "detection_time_ms": detection_time_ms,
+                        })
+
+            if detections:
+                self.last_detections[role] = detections
+                if self.debug_logs:
+                    print(f"[YOLO] detections={len(detections)} role={role} first={detections[0]}")
+
+            return detections
+
+        except Exception as e:
+            print(f"[YOLO] âš ď¸Ź BĹ‚Ä…d detekcji {role}: {e}")
+            return []
+
+    # ===========================================================
+    # Optional annotation (legacy / debug)
+    # ===========================================================
+
+    def annotate_frame(self, frame: np.ndarray | None, role: str) -> np.ndarray | None:
+        """
+        Dodaje adnotacje do klatki.
+        JeĹ›li frame jest Bayerem 2D, najpierw robi demosaic.
+        """
+        if frame is None:
+            return frame
+
+        try:
+            annotated_frame = self._prepare_frame_for_yolo(frame).copy()
+        except Exception:
+            return frame
+
+        if not self.enabled:
+            return annotated_frame
+
+        try:
+            detections = self.detect_ball_in_frame(annotated_frame, role)
+
+            for det in detections:
+                center = (det["center_x"], det["center_y"])
+                x, y, w, h = det["x"], det["y"], det["width"], det["height"]
+
+                cv2.circle(annotated_frame, center, 8, (0, 255, 0), -1)
+                cv2.circle(annotated_frame, center, 10, (255, 255, 255), 2)
+                cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+                label = f"Ball {det['confidence']:.2f}"
+                label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+
+                cv2.rectangle(
+                    annotated_frame,
+                    (x, max(0, y - label_size[1] - 10)),
+                    (x + label_size[0], y),
+                    (0, 255, 0),
+                    -1
+                )
+                cv2.putText(
+                    annotated_frame,
+                    label,
+                    (x, max(0, y - 5)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 0, 0),
+                    2
+                )
+
+            return annotated_frame
+
+        except Exception as e:
+            print(f"[YOLO] âš ď¸Ź BĹ‚Ä…d adnotacji {role}: {e}")
+            return annotated_frame
+
+    # ===========================================================
+    # Stats
+    # ===========================================================
+
+    def _update_performance_stats(self, detection_time_ms: float):
+        """Aktualizuje statystyki wydajnoĹ›ci"""
+        try:
+            self.detection_times.append(float(detection_time_ms))
+            if len(self.detection_times) > self.max_time_samples:
+                self.detection_times = self.detection_times[-self.max_time_samples:]
+
+            now = time.time()
+            if now - self.last_perf_report >= 2.0:
+                self._send_performance_report()
+                self.last_perf_report = now
+        except Exception:
+            pass
+
+    def _send_performance_report(self):
+        """WysyĹ‚a raport wydajnoĹ›ci do stats_q, jeĹ›li dostÄ™pne"""
+        if not self.detection_times:
+            return
+
+        try:
+            avg_time = sum(self.detection_times) / len(self.detection_times)
+            fps = 1000.0 / avg_time if avg_time > 0 else 0.0
+
+            try:
+                import core.utils_config as utils_config
+                stats_q = getattr(utils_config, "stats_q", None)
+                if stats_q is not None and hasattr(stats_q, "put_nowait"):
+                    perf_msg = {
+                        "type": "yolo_performance",
+                        "avg_detection_time_ms": avg_time,
+                        "detection_fps": fps,
+                        "samples": len(self.detection_times),
+                        "device": self.device,
+                        "image_size": self.image_size,
+                    }
+                    stats_q.put_nowait(perf_msg)
+            except Exception:
+                pass
+
+        except Exception as e:
+            print(f"[YOLO] âš ď¸Ź Performance report error: {e}")
+
+    def get_ball_positions(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Zwraca Ĺ›wieĹĽe pozycje piĹ‚ek"""
+        current_time = time.time()
+        active_detections: Dict[str, List[Dict[str, Any]]] = {}
+
+        for role, detections in self.last_detections.items():
+            fresh_detections = []
+            for det in detections:
+                try:
+                    ts = float(det.get("timestamp", 0.0))
+                except Exception:
+                    ts = 0.0
+                if (current_time - ts) < 2.0:
+                    fresh_detections.append(det)
+            if fresh_detections:
+                active_detections[role] = fresh_detections
+
+        return active_detections
+
+    def set_confidence_threshold(self, threshold: float):
+        self.confidence_threshold = max(0.1, min(1.0, float(threshold)))
+        print(f"[YOLO] 🎯 Confidence threshold: {self.confidence_threshold}")
+
+    def set_image_size(self, size: int):
+        self.image_size = max(320, min(1280, int(size)))
+        print(f"[YOLO] đź“ Image size: {self.image_size}")
+
+    def set_device(self, device: str) -> bool:
+        device = str(device).lower().strip()
+
+        if device not in ("cpu", "cuda"):
+            print(f"[YOLO] âš ď¸Ź Unsupported device: {device}")
+            return False
+
+        if self.inference_backend == "tensorrt" and device != "cuda":
+            print("[YOLO] âš ď¸Ź TensorRT backend requires CUDA device")
+            return False
+        if device == "cuda" and not torch.cuda.is_available():
+            print("[YOLO] âš ď¸Ź CUDA unavailable")
+            return False
+
+        self.device = device
+        self.use_half = str(self.device).startswith("cuda") and torch.cuda.is_available()
+        if self.preprocess_backend == "cuda" and device != "cuda":
+            self.preprocess_backend = "cpu"
+            print("[YOLO] â„ąď¸Ź preprocess_backend auto-switched to cpu (device is not cuda)")
+        if self.model is not None:
+            try:
+                self._sync_model_runtime_device()
+            except Exception as e:
+                print(f"[YOLO] âš ď¸Ź Model move failed: {e}")
+                return False
+
+        print(f"[YOLO] đź’» Device: {self.device}")
+        return True
+
+    def get_stats(self) -> Dict:
+        active_positions = self.get_ball_positions()
+        total_balls = sum(len(dets) for dets in active_positions.values())
+
+        avg_det_ms = (
+            sum(self.detection_times) / len(self.detection_times)
+            if self.detection_times else 0.0
+        )
+
+        return {
+            "enabled": self.enabled,
+            "model_loaded": self.model is not None,
+            "model_path": self.custom_model_path,
+            "backend": self.inference_backend,
+            "trt_engine_path": self.trt_engine_path,
+            "trt_dynamic": self.trt_dynamic,
+            "trt_workspace_gb": self.trt_workspace_gb,
+            "confidence_threshold": self.confidence_threshold,
+            "ball_class_id": self.ball_class_id,
+            "image_size": self.image_size,
+            "device": self.device,
+            "cuda_available": torch.cuda.is_available(),
+            "active_cameras": len(active_positions),
+            "total_balls_detected": total_balls,
+            "ball_positions": active_positions,
+            "avg_detection_time_ms": avg_det_ms,
+            "total_frames_processed": self.total_frames_processed,
+            "batch_size": self.batch_size,
+            "preprocess_backend": self.preprocess_backend,
+            "cuda_demosaic_available": bool(self._cuda_demosaic_available),
+        }
+
+
+ROLE_TO_CAM_IDX = {
+    "CENTER_L": 0,   # cL
+    "CENTER_R": 1,   # cR
+    "LEFT": 2,       # xL
+    "RIGHT": 3,      # xR
+}
+
+def build_3d_input_from_yolo_detections(
+    detections_by_step: List[Dict[str, List[Dict[str, Any]]]],
+    roles_local: List[str],
+    max_objects: int = 5,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    detections_by_step:
+        [
+          {
+            "CENTER_L": [det1, det2, ...],
+            "CENTER_R": [...],
+            "LEFT": [...],
+            "RIGHT": [...]
+          },
+          ...
+        ]
+
+    Zwraca:
+        pts_bat:  (N, M, O, 2)
+        conf_bat: (N, M, O)
+    """
+    N = len(detections_by_step)
+    M = 4
+
+    pts_bat = np.full((N, M, max_objects, 2), np.nan, dtype=np.float32)
+    conf_bat = np.full((N, M, max_objects), np.nan, dtype=np.float32)
+
+    for step_idx, det_step in enumerate(detections_by_step):
+        for role in roles_local:
+            cam_idx = ROLE_TO_CAM_IDX.get(role, None)
+            if cam_idx is None:
+                continue
+
+            dets = det_step.get(role, [])
+            if not dets:
+                continue
+
+            # sortowanie po confidence malejÄ…co
+            dets_sorted = sorted(
+                dets,
+                key=lambda d: float(d.get("confidence", 0.0)),
+                reverse=True
+            )
+
+            num_keep = min(len(dets_sorted), max_objects)
+
+            for j in range(num_keep):
+                det = dets_sorted[j]
+
+                # uĹĽywamy Ĺ›rodka bboxa jako punktu 2D
+                pts_bat[step_idx, cam_idx, j, 0] = float(det["center_x"])
+                pts_bat[step_idx, cam_idx, j, 1] = float(det["center_y"])
+                conf_bat[step_idx, cam_idx, j] = float(det["confidence"])
+
+    return pts_bat, conf_bat
+
+# ===========================================================
+# Global instance
+# ===========================================================
+
+_GLOBAL_YOLO = VolleyHubYOLO()
+
+def set_yolo_batch_size(batch_size: int):
+    _GLOBAL_YOLO.set_batch_size(batch_size)
+
+def get_yolo_instance():
+    return _GLOBAL_YOLO
+
+
+def enable_yolo():
+    return _GLOBAL_YOLO.enable()
+
+
+def disable_yolo():
+    _GLOBAL_YOLO.disable()
+
+
+def is_yolo_enabled():
+    return _GLOBAL_YOLO.enabled
+
+
+def set_yolo_confidence(threshold: float):
+    _GLOBAL_YOLO.set_confidence_threshold(threshold)
+
+
+def load_custom_yolo_model(model_path: str):
+    return _GLOBAL_YOLO.load_custom_model(model_path)
+
+
+def set_yolo_ball_class_id(class_id: int):
+    _GLOBAL_YOLO.ball_class_id = int(class_id)
+    print(f"[YOLO] 🎯 Ball class ID: {class_id}")
+
+
+def set_yolo_image_size(size: int):
+    _GLOBAL_YOLO.set_image_size(size)
+
+
+def set_yolo_device(device: str):
+    return _GLOBAL_YOLO.set_device(device)
+
+
+def set_yolo_backend(backend: str):
+    return _GLOBAL_YOLO.set_backend(backend)
+
+
+def set_yolo_tensorrt_engine(engine_path: str):
+    return _GLOBAL_YOLO.set_tensorrt_engine(engine_path)
+
+
+def configure_yolo_tensorrt(dynamic: Optional[bool] = None, workspace_gb: Optional[float] = None):
+    _GLOBAL_YOLO.configure_tensorrt(dynamic=dynamic, workspace_gb=workspace_gb)
+
+
+def set_yolo_bayer_pattern(pattern: str):
+    return _GLOBAL_YOLO.set_bayer_pattern(pattern)
+
+
+def set_yolo_preprocess_backend(backend: str):
+    return _GLOBAL_YOLO.set_preprocess_backend(backend)
+
+
+def get_yolo_debug_info():
+    yolo = get_yolo_instance()
+    return {
+        "enabled": yolo.enabled,
+        "model_loaded": yolo.model is not None,
+        "last_detections_count": {role: len(dets) for role, dets in yolo.last_detections.items()},
+        "detection_times_avg": (
+            sum(yolo.detection_times) / len(yolo.detection_times)
+            if yolo.detection_times else 0.0
+        ),
+        "total_detections_made": len(yolo.detection_times),
+        "total_frames_processed": yolo.total_frames_processed,
+        "backend": yolo.inference_backend,
+        "trt_engine_path": yolo.trt_engine_path,
+        "device": yolo.device,
+        "image_size": yolo.image_size,
+        "preprocess_backend": yolo.preprocess_backend,
+        "cuda_demosaic_available": bool(yolo._cuda_demosaic_available),
+    }
+
+
+def get_yolo_stats():
+    return _GLOBAL_YOLO.get_stats()
+
+
+def get_ball_positions():
+    return _GLOBAL_YOLO.get_ball_positions()
+
+
+def process_batch_with_yolo(
+    frames_by_step: List[List[np.ndarray]],
+    roles: List[str]
+) -> Dict:
+    yolo = get_yolo_instance()
+    return yolo.detect_ball_in_batch(frames_by_step, roles)
+
+
+def process_frame_with_yolo(frame: np.ndarray, role: str) -> np.ndarray:
+    """
+    Legacy helper dla starego preview path.
+    Zostawione dla kompatybilnoĹ›ci, ale docelowo YOLO powinno byÄ‡ woĹ‚ane batchowo.
+    """
+    yolo = get_yolo_instance()
+    return yolo.annotate_frame(frame, role)
+

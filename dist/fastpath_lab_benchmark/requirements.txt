@@ -1,0 +1,29 @@
+# fastpath_lab_benchmark — minimal runtime requirements.
+#
+# The lab benchmark uses TensorRT + torch + numpy + matplotlib only.
+# No OpenCV, no pypylon, no ultralytics, no Pillow.
+#
+# IMPORTANT: torch and tensorrt must be CUDA-enabled builds matching
+# your local CUDA Toolkit. The pip wheels below are the simplest path
+# on a fresh machine with a recent NVIDIA driver. If you already have
+# torch + tensorrt installed (e.g. in conda), you only need numpy and
+# matplotlib.
+#
+# Tested combination (matches the RTX 2080 Super baseline):
+#   torch     2.5.1+cu121
+#   tensorrt  10.16.x
+#   numpy     1.26.x
+#   matplotlib 3.x
+
+numpy>=1.24
+matplotlib>=3.6
+
+# torch + tensorrt are NOT pinned in this file because the right
+# wheels depend on the local CUDA Toolkit. The recommended install is:
+#
+#   pip install --index-url https://download.pytorch.org/whl/cu121 \
+#        torch==2.5.1
+#   pip install tensorrt==10.16.*
+#
+# (You may need `pip install tensorrt-libs tensorrt-bindings` on
+#  some distributions; check `python -c "import tensorrt"` afterwards.)

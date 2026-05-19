@@ -1,0 +1,18 @@
+[
+  {
+    "serial": "REPLACE_WITH_YOUR_SERIAL_LEFT",
+    "role": "LEFT"
+  },
+  {
+    "serial": "REPLACE_WITH_YOUR_SERIAL_CENTER_L",
+    "role": "CENTER_L"
+  },
+  {
+    "serial": "REPLACE_WITH_YOUR_SERIAL_CENTER_R",
+    "role": "CENTER_R"
+  },
+  {
+    "serial": "REPLACE_WITH_YOUR_SERIAL_RIGHT",
+    "role": "RIGHT"
+  }
+]

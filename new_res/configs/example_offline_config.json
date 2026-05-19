@@ -1,0 +1,14 @@
+{
+  "input_dir": "sample_frames",
+  "output_dir": "outputs",
+  "detector_backend": "ultralytics",
+  "model_path": "best.pt",
+  "trt_engine_path": "",
+  "device": "cuda",
+  "image_size": 640,
+  "confidence": 0.25,
+  "debayer_backend": "cpu_opencv",
+  "bayer_pattern": "BG",
+  "save_overlays": true,
+  "save_json": true
+}

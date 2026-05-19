@@ -1,0 +1,41 @@
+target:
+  cameras: 4
+  target_fps_per_camera: 50
+  packet_budget_ms: 20
+  capture_resolution: [1920, 1080]
+  batch: 4
+
+sweep:
+  - name: "640x640"
+    inference_input_shape: [640, 640]
+    engine_path: "artifacts/tensorrt_exports/best__fp16_640_b4_static__fp16__img640__b4__static.engine"
+  - name: "960x960"
+    inference_input_shape: [960, 960]
+    engine_path: "artifacts/tensorrt_exports/best__fp16_960_b4_static__fp16__img960__b4__static.engine"
+  - name: "1280x1280"
+    inference_input_shape: [1280, 1280]
+    engine_path: "artifacts/tensorrt_exports/best__fp16_1280_b4_static__fp16__img1280__b4__static.engine"
+  - name: "1088x1920"
+    inference_input_shape: [1088, 1920]
+    engine_path: "artifacts/tensorrt_exports/best__fp16_1088x1920_b4_static__fp16__img1088x1920__b4__static.engine"
+
+runtime:
+  color_backend: "native_cuda_npp"
+  native_backend_detail: "custom_cuda_kernel"
+  inference_backend: "tensorrt"
+  pipeline_mode: "gpu_zero_copy"
+  half: true
+  bayer_pattern: "RG"
+  warmup_packets: 30
+  duration_s: 60
+  report_every: 30
+
+preview:
+  enabled: false
+
+report:
+  baseline_name: "RTX 2080 Super"
+  output_html: "reports/fastpath_comparison_report.html"
+  output_md: "reports/fastpath_comparison_report.md"
+  output_json: "reports/results.json"
+  output_csv: "reports/results.csv"

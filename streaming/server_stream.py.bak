@@ -1,0 +1,822 @@
+﻿# server_stream.py - WebRTC + statics + JSON API
+
+import multiprocessing as mp
+from aiohttp import web
+from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
+from av import VideoFrame
+import asyncio
+import numpy as np
+import socket
+import ipaddress
+import psutil
+import os
+import signal
+# DODAJ:
+from core.utils_path import resource_path
+
+# --- globalne referencje (leniwa inicjalizacja w init_shared)
+_manager = None
+_selected_role = None          # -> manager.Value('s', ...)
+_current_frame_key = None      # -> manager.dict()
+_shared_state = None           # -> manager.dict() z maina (opcjonalnie)
+pcs = set()
+_webrtc_proc = None
+# na gĂłrze pliku
+_control_q = None
+
+# ----------------------------
+#  IP wybĂłr interfejsu
+# ----------------------------
+def _get_host_ip(
+    prefer_cidrs=("192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"),
+    blacklist=("docker", "vethernet", "virtualbox", "hamachi", "wg", "tailscale", "zerotier", "tun", "tap"),
+    verbose=True,
+):
+    addrs = psutil.net_if_addrs()
+    stats = psutil.net_if_stats()
+    nets = [ipaddress.ip_network(cidr) for cidr in prefer_cidrs]
+
+    def iface_priority(name):
+        lname = name.lower()
+        if any(bad in lname for bad in blacklist):
+            return 99
+        if "wi-fi" in lname or "wlan" in lname:
+            return 0
+        if "eth" in lname or "lan" in lname or lname.startswith(("en", "ethernet")):
+            return 1
+        return 2
+
+    candidates = []
+    for iface, addr_list in addrs.items():
+        st = stats.get(iface)
+        if not st or not st.isup:
+            continue
+        for addr in addr_list:
+            if addr.family != socket.AF_INET:
+                continue
+            ip = addr.address
+            if ip.startswith("127.") or ip.startswith("169.254."):
+                continue
+            ip_obj = ipaddress.ip_address(ip)
+            in_pref = any(ip_obj in net for net in nets)
+            prio = iface_priority(iface)
+            speed = int(getattr(st, "speed", 0) or 0)
+            candidates.append({"iface": iface, "ip": ip, "prio": prio, "in_pref": in_pref, "speed": speed})
+
+    if not candidates:
+        for probe in (("8.8.8.8", 80), ("1.1.1.1", 80)):
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(probe)
+                ip = s.getsockname()[0]
+                s.close()
+                if verbose:
+                    print(f"[REMOTE] đźŚ Wybrano przez routing: {ip}")
+                return ip
+            except Exception:
+                continue
+        return "127.0.0.1"
+
+    candidates.sort(key=lambda c: (0 if c["in_pref"] else 1, c["prio"], -c["speed"], c["ip"]))
+    best = candidates[0]
+    if best["in_pref"]:
+        if verbose:
+            print(f"[REMOTE] ... Wybrano {best['ip']} z interfejsu '{best['iface']}'")
+        return best["ip"]
+    else:
+        if verbose:
+            print(f"[REMOTE] âš ď¸Ź Brak dopasowania RFC1918 - uĹĽywam {best['ip']} z '{best['iface']}'")
+        return best["ip"]
+
+# ----------------------------
+#  INIT / SHARED STATE
+# ----------------------------
+def init_shared(manager=None, shared_state=None):
+    global _manager, _selected_role, _current_frame_key, _shared_state
+
+    if _manager is None:
+        _manager = manager or mp.Manager()
+
+    if shared_state is not None:
+        _shared_state = shared_state
+        # â¬‡â¬‡â¬‡  KLUCZOWE: jeden sĹ‚ownik wspĂłĹ‚dzielony dla klucza ramki
+        ck = _shared_state.get("current_key")
+        if ck is None:
+            ck = _manager.dict()
+            _shared_state["current_key"] = ck
+        _current_frame_key = ck
+        # full_key
+        fk = _shared_state.get("full_key")
+        if fk is None:
+            fk = _manager.dict()
+            _shared_state["full_key"] = fk
+    else:
+        if _current_frame_key is None:
+            _current_frame_key = _manager.dict()
+
+    if _selected_role is None:
+        _selected_role = _manager.Value('s', "CENTER_L")
+
+
+# ----------------------------
+#  API dla innych moduĹ‚Ăłw
+# ----------------------------
+def set_selected_role(role: str):
+    if _selected_role is not None:
+        _selected_role.value = str(role)
+
+def get_selected_role() -> str:
+    return _selected_role.value if _selected_role is not None else "CENTER_L"
+
+def webrtc_set_current_key(role: str, key: str):
+    """
+    Zapisz ostatni klucz ramki w shared dict â€“ bÄ™dzie czytany przez WebRTC track.
+    Tylko jeĹ›li to jest aktualnie wybrana rola.
+    """
+    if _current_frame_key is not None and role == get_selected_role():
+        _current_frame_key[role] = key
+
+def webrtc_get_current_key(role: str):
+    if _current_frame_key is None:
+        return None
+    try:
+        return _current_frame_key.get(role, None)
+    except Exception:
+        return None
+
+# ----------------------------
+#  WebRTC Video Track
+# ----------------------------
+def _get_current_key_from_shared(role: str):
+    try:
+        if _shared_state is None:
+            return None
+        ck = _shared_state.get("current_key", None)
+        if ck is None:
+            return None
+        return ck.get(role, None)
+    except Exception:
+        return None
+
+class BaslerTrack(VideoStreamTrack):
+    def __init__(self):
+        super().__init__()
+        # import tutaj, ĹĽeby uniknÄ…Ä‡ ciÄ™ĹĽkich importĂłw przy imporcie moduĹ‚u
+        from storage.shared_memory_manager import get_shared_memory_manager
+        self.smm = get_shared_memory_manager()
+
+    async def recv(self):
+        pts, tb = await self.next_timestamp()
+
+        # wybrana rola â€“ z shared_state jako jedynego ĹşrĂłdĹ‚a prawdy
+        if _shared_state is not None:
+            role = _shared_state.get("selected_role", "CENTER_L")
+        else:
+            role = "CENTER_L"
+
+        # klucz aktualnej ramki â€“ teĹĽ z shared_state["current_key"]
+        key = None
+        try:
+            if _shared_state is not None:
+                ck = _shared_state.get("current_key")
+                if ck is not None:
+                    key = ck.get(role)
+        except Exception:
+            key = None
+
+        if not key:
+            await asyncio.sleep(0.01)
+            blank = np.zeros((720, 1280, 3), dtype=np.uint8)
+            f = VideoFrame.from_ndarray(blank, format="bgr24")
+            f.pts, f.time_base = pts, tb
+            return f
+
+        data = self.smm.read_frame(key)
+        if data is None:
+            await asyncio.sleep(0.01)
+            blank = np.zeros((720, 1280, 3), dtype=np.uint8)
+            f = VideoFrame.from_ndarray(blank, format="bgr24")
+            f.pts, f.time_base = pts, tb
+            return f
+
+        frame_bgr = data[0] if isinstance(data, tuple) else data
+
+        # BGR (z kamer / OpenCV) -> RGB do przeglÄ…darki
+        frame_rgb = frame_bgr[:, :, ::-1]  # zamiana kolejnoĹ›ci kanaĹ‚Ăłw
+
+        vf = VideoFrame.from_ndarray(frame_rgb, format="rgb24")
+        vf.pts, vf.time_base = pts, tb
+        return vf
+
+
+# ----------------------------
+#  AIOHTTP: signalling + statics + API
+# ----------------------------
+# --- ZAMIANA: bazuj na resource_path zamiast __file__
+from pathlib import Path
+_BASE_DIR = Path(resource_path(""))            # katalog obok exe
+_WWW_DIR = _BASE_DIR                           # index.html
+_STATIC_DIR = _BASE_DIR                        # app.js obok exe
+_ALT_STATIC_DIR = _BASE_DIR / "static"         # ewentualnie dist/VolleyHub/static/
+ # app.js w ./static/app.js
+
+async def offer(request: web.Request):
+    params = await request.json()
+    pc = RTCPeerConnection()
+    pcs.add(pc)
+
+    pc.addTrack(BaslerTrack())
+
+    offer_obj = RTCSessionDescription(params["sdp"], params["type"])
+    await pc.setRemoteDescription(offer_obj)
+    answer = await pc.createAnswer()
+    await pc.setLocalDescription(answer)
+
+    return web.json_response({"sdp": pc.localDescription.sdp, "type": pc.localDescription.type})
+
+
+
+from aiohttp import web
+from pathlib import Path
+
+async def index(request: web.Request):
+    p = Path(resource_path("index.html"))
+    print(p)
+    print("index")
+    if p.exists():
+        return web.FileResponse(p)
+    raise web.HTTPNotFound(text="index.html not found on disk")
+
+
+async def static_appjs(request: web.Request):
+    print("static_appjs")
+    p = Path(resource_path("app.js"))
+    print(p)
+    if p.exists():
+        return web.FileResponse(p)
+
+    alt = _ALT_STATIC_DIR / "app.js"
+    if alt.exists():
+        return web.FileResponse(alt)
+
+    raise web.HTTPNotFound(text="app.js not found (static_appjs)")
+
+
+async def app_js(request: web.Request):
+    print("app_js")
+    p = Path(resource_path("app.js"))
+    print(p)
+    if p.exists():
+        return web.FileResponse(p)
+
+    alt = _ALT_STATIC_DIR / "app.js"
+    if alt.exists():
+        return web.FileResponse(alt)
+
+    raise web.HTTPNotFound(text="app.js not found (app_js)")
+
+
+
+async def api_roles(request: web.Request):
+    roles = []
+    if _shared_state is not None:
+        try:
+            roles = list(_shared_state.get("roles", []))
+        except Exception:
+            roles = []
+    sel = "CENTER_L"
+    if _shared_state is not None:
+        try:
+            sel = _shared_state.get("selected_role", "CENTER_L")
+        except Exception:
+            pass
+    return web.json_response({"roles": roles, "selected": sel})
+
+
+async def api_select_camera(request: web.Request):
+    data = await request.json()
+    role = str(data.get("role", "")).strip()
+    if not role:
+        return web.json_response({"ok": False, "err": "missing role"}, status=400)
+    # 1) zapis do shared_state â€“ to jest jedyne ĹşrĂłdĹ‚o prawdy
+    if _shared_state is not None:
+        _shared_state["selected_role"] = role
+    # 2) opcjonalnie ustaw lokalny Value jeĹ›li istnieje (w tym procesie zwykle i tak jest None)
+    try:
+        set_selected_role(role)
+    except Exception:
+        pass
+    print("[API] selected_role set to:", role)
+    return web.json_response({"ok": True, "selected": role})
+
+async def api_exposure(request: web.Request):
+    # body: {"role": "...", "value": <float/int microseconds>}
+    try:
+        data = await request.json()
+        role = str(data.get("role"))
+        val = float(data.get("value"))
+        cq = _control_q
+        if cq is None:
+            try:
+                import core.utils_config as utils_config
+                cq = getattr(utils_config, "control_q", None)
+            except Exception:
+                cq = None
+        if cq is None:
+            return web.json_response({"ok": False, "err": "control_q not available"}, status=503)
+        cq.put(("set_exposure", (role, val)))
+        return web.json_response({"ok": True})
+    except Exception as e:
+        return web.json_response({"ok": False, "err": str(e)}, status=400)
+
+async def api_gain(request: web.Request):
+    # body: {"role": "...", "value": <float dB>}
+    try:
+        data = await request.json()
+        role = str(data.get("role"))
+        val = float(data.get("value"))
+        cq = _control_q
+        if cq is None:
+            try:
+                import core.utils_config as utils_config
+                cq = getattr(utils_config, "control_q", None)
+            except Exception:
+                cq = None
+        if cq is None:
+            return web.json_response({"ok": False, "err": "control_q not available"}, status=503)
+        cq.put(("set_gain", (role, val)))
+        return web.json_response({"ok": True})
+    except Exception as e:
+        return web.json_response({"ok": False, "err": str(e)}, status=400)
+
+
+async def api_frame(request: web.Request):
+    """
+    Zwraca JPEG bieĹĽÄ…cej ramki wybranej roli.
+    NEW: opcjonalne skalowanie po stronie serwera przez query:
+         ?out_w=<px>&out_h=<px>
+    """
+    # ĹşrĂłdĹ‚o prawdy: shared_state
+    role = _shared_state.get("selected_role", "CENTER_L") if _shared_state else "CENTER_L"
+    ck = _shared_state.get("current_key") if _shared_state else None
+    key = ck.get(role) if ck is not None else None
+
+    from storage.shared_memory_manager import get_shared_memory_manager
+    smm = get_shared_memory_manager()
+
+    if not key:
+        return web.Response(status=204)
+
+    data = smm.read_frame(key)
+    if data is None:
+        return web.Response(status=204)
+
+    frame_bgr = data[0] if isinstance(data, tuple) else data
+
+
+    try:
+        out_w = int(request.query.get("out_w", "0") or 0)
+        out_h = int(request.query.get("out_h", "0") or 0)
+    except Exception:
+        out_w = out_h = 0
+
+    if out_w > 0 and out_h > 0:
+        try:
+            import cv2
+            frame_bgr = cv2.resize(frame_bgr, (out_w, out_h), interpolation=cv2.INTER_AREA)
+        except Exception:
+            pass
+
+    # --- kodowanie JPEG + nagĹ‚Ăłwki cache ---
+    try:
+        import cv2
+        params = [
+            int(cv2.IMWRITE_JPEG_QUALITY), 90,
+            int(cv2.IMWRITE_JPEG_OPTIMIZE), 1
+        ]
+        ok, buf = cv2.imencode(".jpg", frame_bgr, params)
+        if not ok:
+            return web.Response(status=500, text="encode failed")
+        return web.Response(
+            body=buf.tobytes(),
+            content_type="image/jpeg",
+            headers={"Cache-Control": "no-store"}
+        )
+    except Exception:
+        # fallback przez PIL
+        from PIL import Image
+        import io as _io
+        img = Image.fromarray(frame_bgr[:, :, ::-1])  # BGR->RGB
+        bio = _io.BytesIO()
+        img.save(bio, format="JPEG", quality=90, optimize=True)
+        return web.Response(
+            body=bio.getvalue(),
+            content_type="image/jpeg",
+            headers={"Cache-Control": "no-store"}
+        )
+
+
+
+
+
+
+async def api_frame_roi(request: web.Request):
+    """
+    /api/roi?role=...&x=...&y=...&w=...&h=...&out_w=...&out_h=...
+    x,y,w,h w [0..1] wzglÄ™dem PEĹNEJ klatki.
+    Kolor liczony tylko dla wycinka (Bayer->BGR), CPU-friendly.
+    """
+    # --- rola ---
+    role = request.query.get("role")
+    if not role:
+        role = _shared_state.get("selected_role", "CENTER_L") if _shared_state else "CENTER_L"
+
+    # --- weĹş ostatni klucz do BAYER ---
+    bkey_dict = _shared_state.get("bayer_key") if _shared_state else None
+    bayer_key = bkey_dict.get(role) if bkey_dict is not None else None
+
+    from storage.shared_memory_manager import get_shared_memory_manager
+    smm = get_shared_memory_manager()
+
+    # Fallback: jeĹ›li nie ma BAYER â†’ uĹĽyj aktualnej BGR (dziaĹ‚a, ale mniej efektywnie)
+    if not bayer_key:
+        ck = _shared_state.get("current_key") if _shared_state else None
+        key = ck.get(role) if ck is not None else None
+        if not key:
+            return web.Response(status=204)
+        data = smm.read_frame(key)
+        if data is None:
+            return web.Response(status=204)
+        frame_bgr = data[0] if isinstance(data, tuple) else data
+        H, W = frame_bgr.shape[:2]
+        src_mode = "bgr"
+    else:
+        data = smm.read_frame(bayer_key)
+        if data is None:
+            return web.Response(status=204)
+        bayer = data[0] if isinstance(data, tuple) else data
+        H, W = bayer.shape[:2]
+        src_mode = "bayer"
+
+    # --- parsowanie ROI ---
+    def _f(name, default):
+        try:
+            return float(request.query.get(name, default))
+        except Exception:
+            return float(default)
+
+    nx = max(0.0, min(1.0, _f("x", 0.0)))
+    ny = max(0.0, min(1.0, _f("y", 0.0)))
+    nw = max(0.0, min(1.0, _f("w", 1.0)))
+    nh = max(0.0, min(1.0, _f("h", 1.0)))
+    if nx + nw > 1.0: nw = max(0.0, 1.0 - nx)
+    if ny + nh > 1.0: nh = max(0.0, 1.0 - ny)
+
+    import numpy as _np
+    x0 = int(_np.floor(nx * W))
+    y0 = int(_np.floor(ny * H))
+    x1 = int(_np.ceil((nx + nw) * W))
+    y1 = int(_np.ceil((ny + nh) * H))
+    x0 = max(0, min(x0, W - 1))
+    y0 = max(0, min(y0, H - 1))
+    x1 = max(0, min(x1, W))
+    y1 = max(0, min(y1, H))
+    if x1 <= x0: x1 = min(W, x0 + 1)
+    if y1 <= y0: y1 = min(H, y0 + 1)
+
+    if src_mode == "bayer":
+        crop_bayer = bayer[y0:y1, x0:x1]
+        if crop_bayer.size == 0:
+            return web.Response(status=204)
+        import cv2
+        crop_bgr = cv2.cvtColor(crop_bayer, cv2.COLOR_BAYER_RG2RGB)
+        img = crop_bgr
+    else:
+        crop_bgr = frame_bgr[y0:y1, x0:x1]
+        if crop_bgr is None or crop_bgr.size == 0:
+            return web.Response(status=204)
+        img = crop_bgr
+
+    # opcjonalne skalowanie
+    try:
+        out_w = int(request.query.get("out_w", "0") or 0)
+        out_h = int(request.query.get("out_h", "0") or 0)
+    except Exception:
+        out_w = out_h = 0
+
+    if out_w > 0 and out_h > 0:
+        try:
+            import cv2
+            interp = cv2.INTER_AREA if (out_w < img.shape[1] or out_h < img.shape[0]) else cv2.INTER_LINEAR
+            img = cv2.resize(img, (out_w, out_h), interpolation=interp)
+        except Exception:
+            pass
+
+    # JPEG out
+    try:
+        import cv2
+        ok, buf = cv2.imencode(".jpg", img, [int(cv2.IMWRITE_JPEG_QUALITY), 90, int(cv2.IMWRITE_JPEG_OPTIMIZE), 1])
+        if not ok:
+            return web.Response(status=500, text="encode failed")
+        return web.Response(body=buf.tobytes(), content_type="image/jpeg", headers={"Cache-Control": "no-store"})
+    except Exception:
+        from PIL import Image
+        import io as _io
+        im = Image.fromarray(img[:, :, ::-1])  # BGR->RGB
+        bio = _io.BytesIO()
+        im.save(bio, format="JPEG", quality=90, optimize=True)
+        return web.Response(body=bio.getvalue(), content_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+async def api_yolo_stats(request: web.Request):
+    """Zwraca statystyki YOLO"""
+    try:
+        from vision.yolo_module import get_yolo_stats
+        stats = get_yolo_stats()
+        return web.json_response({"ok": True, "stats": stats})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+async def api_yolo_toggle(request: web.Request):
+    """WĹ‚Ä…cza/wyĹ‚Ä…cza YOLO"""
+    try:
+        data = await request.json()
+        enabled = bool(data.get("enabled", False))
+        
+        cq = _control_q
+        if cq is None:
+            try:
+                import core.utils_config as utils_config
+                cq = getattr(utils_config, "control_q", None)
+            except Exception:
+                cq = None
+        if cq is None:
+            return web.json_response({"ok": False, "error": "control_q not available"}, status=503)
+            
+        cq.put(("yolo", enabled))
+        return web.json_response({"ok": True, "enabled": enabled})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+async def api_yolo_load_model(request: web.Request):
+    """Ĺaduje custom model YOLO"""
+    try:
+        data = await request.json()
+        model_path = str(data.get("model_path", "")).strip()
+        
+        if not model_path:
+            return web.json_response({"ok": False, "error": "model_path required"}, status=400)
+            
+        cq = _control_q
+        if cq is None:
+            try:
+                import core.utils_config as utils_config
+                cq = getattr(utils_config, "control_q", None)
+            except Exception:
+                cq = None
+        if cq is None:
+            return web.json_response({"ok": False, "error": "control_q not available"}, status=503)
+            
+        cq.put(("yolo_load_model", model_path))
+        return web.json_response({"ok": True, "model_path": model_path})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+async def api_yolo_set_class_id(request: web.Request):
+    """Ustawia ID klasy piĹ‚ki"""
+    try:
+        data = await request.json()
+        class_id = int(data.get("class_id", 0))
+        
+        cq = _control_q
+        if cq is None:
+            try:
+                import core.utils_config as utils_config
+                cq = getattr(utils_config, "control_q", None)
+            except Exception:
+                cq = None
+        if cq is None:
+            return web.json_response({"ok": False, "error": "control_q not available"}, status=503)
+            
+        cq.put(("yolo_set_class_id", class_id))
+        return web.json_response({"ok": True, "class_id": class_id})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+async def api_yolo_set_confidence(request: web.Request):
+    """Ustawia prĂłg confidence"""
+    try:
+        data = await request.json()
+        confidence = float(data.get("confidence", 0.5))
+        
+        cq = _control_q
+        if cq is None:
+            try:
+                import core.utils_config as utils_config
+                cq = getattr(utils_config, "control_q", None)
+            except Exception:
+                cq = None
+        if cq is None:
+            return web.json_response({"ok": False, "error": "control_q not available"}, status=503)
+            
+        cq.put(("yolo_set_confidence", confidence))
+        return web.json_response({"ok": True, "confidence": confidence})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+async def api_yolo_set_image_size(request: web.Request):
+    """Ustawia rozmiar analizowanego obrazu"""
+    try:
+        data = await request.json()
+        size = int(data.get("size", 640))
+        
+        cq = _control_q
+        if cq is None:
+            try:
+                import core.utils_config as utils_config
+                cq = getattr(utils_config, "control_q", None)
+            except Exception:
+                cq = None
+        if cq is None:
+            return web.json_response({"ok": False, "error": "control_q not available"}, status=503)
+            
+        cq.put(("yolo_set_image_size", size))
+        return web.json_response({"ok": True, "size": size})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+async def api_yolo_set_device(request: web.Request):
+    """Ustawia urzÄ…dzenie YOLO (cpu/cuda)"""
+    try:
+        data = await request.json()
+        device = str(data.get("device", "cpu"))
+        
+        cq = _control_q
+        if cq is None:
+            try:
+                import core.utils_config as utils_config
+                cq = getattr(utils_config, "control_q", None)
+            except Exception:
+                cq = None
+        if cq is None:
+            return web.json_response({"ok": False, "error": "control_q not available"}, status=503)
+            
+        cq.put(("yolo_set_device", device))
+        return web.json_response({"ok": True, "device": device})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+
+async def api_yolo_set_preprocess_backend(request: web.Request):
+    """Ustawia backend preprocessu YOLO (cpu/cuda)"""
+    try:
+        data = await request.json()
+        backend = str(data.get("backend", "cpu")).strip().lower()
+        if backend not in ("cpu", "cuda"):
+            return web.json_response({"ok": False, "error": "backend must be cpu or cuda"}, status=400)
+
+        cq = _control_q
+        if cq is None:
+            try:
+                import core.utils_config as utils_config
+                cq = getattr(utils_config, "control_q", None)
+            except Exception:
+                cq = None
+        if cq is None:
+            return web.json_response({"ok": False, "error": "control_q not available"}, status=503)
+
+        cq.put(("yolo_set_preprocess_backend", backend))
+        return web.json_response({"ok": True, "backend": backend})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=400)
+
+async def healthz(request: web.Request):
+    return web.json_response({"ok": True})
+
+def _make_app():
+    app = web.Application()
+    app.on_shutdown.append(_on_shutdown)
+    # signalling
+    app.router.add_post("/offer", offer)
+    # statics + index
+    app.router.add_get("/", index)
+    app.router.add_get("/index.html", index)
+    app.router.add_get("/static/app.js", static_appjs)
+    app.router.add_get("/app.js", app_js)
+    # API
+    app.router.add_get("/api/roles", api_roles)
+    app.router.add_post("/api/select_camera", api_select_camera)
+    app.router.add_post("/api/exposure", api_exposure)
+    app.router.add_post("/api/gain", api_gain)
+    app.router.add_get("/api/frame", api_frame)
+    app.router.add_get("/api/roi", api_frame_roi)
+    # YOLO API
+    app.router.add_get("/api/yolo/stats", api_yolo_stats)
+    app.router.add_post("/api/yolo/toggle", api_yolo_toggle)
+    app.router.add_post("/api/yolo/load_model", api_yolo_load_model)
+    app.router.add_post("/api/yolo/set_class_id", api_yolo_set_class_id)
+    app.router.add_post("/api/yolo/set_confidence", api_yolo_set_confidence)
+    app.router.add_post("/api/yolo/set_image_size", api_yolo_set_image_size)
+    app.router.add_post("/api/yolo/set_device", api_yolo_set_device)
+    app.router.add_post("/api/yolo/set_preprocess_backend", api_yolo_set_preprocess_backend)
+    app.router.add_get("/healthz", healthz)
+    return app
+
+async def _on_shutdown(app):
+    for pc in pcs:
+        await pc.close()
+    pcs.clear()
+
+def _run_webrtc(port: int, shared_state_arg=None, control_q_arg=None):
+    if shared_state_arg is not None:
+        global _shared_state, _current_frame_key, _control_q
+        _shared_state = shared_state_arg
+        _current_frame_key = _shared_state.get("current_key") if _shared_state else None
+        _control_q = control_q_arg
+
+        try:
+            _current_frame_key = _shared_state.get("current_key")
+        except Exception:
+            _current_frame_key = None
+    app = _make_app()
+    print(f"[WebRTC] signalling on :{port}")
+    web.run_app(app, port=port)
+
+
+# ----------------------------
+#  Start/Stop serwera
+# ----------------------------
+def start_webrtc_server(port: int = 8765, manager=None, shared_state=None, control_q=None):
+    """
+    Startuje WebRTC jeĹ›li nie dziaĹ‚a. JeĹ›li dziaĹ‚a â€“ NIE tworzy nowego procesu,
+    tylko aktualizuje URL w shared_state.
+    """
+    global _webrtc_proc, _shared_state
+
+    # --- 1) JeĹ›li proces juĹĽ dziaĹ‚a â†’ tylko odĹ›wieĹĽ URL ---
+    if _webrtc_proc is not None and _webrtc_proc.is_alive():
+        try:
+            host_ip = _get_host_ip()
+            url = f"http://{host_ip}:{port}"
+            if shared_state is not None:
+                shared_state["remote_url"] = url
+            print(f"[CTRL] đźŚ WebRTC running at {url}")
+            return url
+        except Exception:
+            return None
+
+    # --- 2) Inicjalizacja wspĂłĹ‚dzielonego stanu ---
+    init_shared(manager=manager, shared_state=shared_state)
+
+    # --- 3) Uruchom nowy proces ---
+    _webrtc_proc = mp.Process(
+        target=_run_webrtc,
+        args=(port, _shared_state, control_q),
+        daemon=False
+    )
+    _webrtc_proc.start()
+    print(f"[WebRTC] started pid={_webrtc_proc.pid}")
+
+    # --- 4) Wylicz i zapisz URL ---
+    try:
+        host_ip = _get_host_ip()
+        url = f"http://{host_ip}:{port}"
+        if _shared_state is not None:
+            _shared_state["remote_url"] = url
+        print(f"[CTRL] đźŚ WebRTC running at {url}")
+        return url
+    except Exception:
+        return None
+
+# (opcjonalne) twarde ubijanie dzieci dla cleanupu
+def kill_child_processes():
+    try:
+        pid = os.getpid()
+        if os.name == "nt":
+            # na Windowsie pozostawiamy terminate() dzieci (robione wyĹĽej)
+            return
+        import psutil as _ps
+        p = _ps.Process(pid)
+        for ch in p.children(recursive=True):
+            try:
+                ch.send_signal(signal.SIGTERM)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+def stop_webrtc_server():
+    global _webrtc_proc
+    if _webrtc_proc is not None:
+        if _webrtc_proc.is_alive():
+            print(f"[WebRTC] stopping pid={_webrtc_proc.pid}")
+            _webrtc_proc.terminate()
+            _webrtc_proc.join(timeout=2.0)
+        _webrtc_proc = None
+    if _shared_state is not None:
+        _shared_state["remote_url"] = None
+    print("[WebRTC] stopped")
+
+
+
+

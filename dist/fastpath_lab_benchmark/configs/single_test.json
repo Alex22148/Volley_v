@@ -1,0 +1,42 @@
+﻿{
+  "_help": "One-shot lab benchmark. Edit the fields below and run: python scripts/06_run_single_test.py --config configs/single_test.json",
+
+  "_fields": {
+    "engine":             "Path to a TensorRT .engine file (relative to package root or absolute).",
+    "capture_shape_hw":   "Synthetic RAW Bayer size as [H, W]. Optional; default is [1080, 1920]. With disable_resize=true and missing capture_shape_hw, it is auto-set to inference_shape_hw.",
+    "inference_shape_hw": "Engine input size as [H, W]. Optional; if missing, auto-inferred from engine filename (e.g. 640, 960, 1088x1920, v640).",
+    "disable_resize":     "If true, test forbids resize and requires capture_shape_hw == inference_shape_hw.",
+    "batch":              "Engine batch size. Must match the .engine.",
+    "active_cameras":     "How many cameras carry real synthetic content. Must be 1..batch. Slots above active_cameras are filled with a dark blank frame, simulating fewer cameras connected.",
+    "target_fps":         "Desired sustained FPS per camera. 0 disables pacing (free-run, maximum throughput). 50 means: try to keep one packet every 20 ms.",
+    "duration_s":         "Measurement window after warmup.",
+    "warmup":             "Warmup iterations (discarded from stats).",
+    "bayer_pattern":      "RG / BG / GR / GB. Must match the synthetic source you want to mimic.",
+    "synthetic_source":   "Synthetic Bayer generator parameters. The same batch is generated once and reused in the loop, so the loop measures the GPU path only (not the CPU-side rendering cost)."
+  },
+
+  "engine":             "engines/best__fp16_640_b4_static.engine",
+  "capture_shape_hw":   [1080, 1920],
+  "inference_shape_hw": [640, 640],
+  "disable_resize":     false,
+  "batch":              4,
+  "active_cameras":     4,
+  "target_fps":         50,
+  "duration_s":         30,
+  "warmup":             10,
+  "bayer_pattern":      "RG",
+
+  "synthetic_source": {
+    "dtype":                   "uint8",
+    "noise_sigma":             0.0,
+    "ball_enabled":            true,
+    "ball_radius_px":          32,
+    "ball_speed_px_per_frame": 24.0,
+    "base_intensity":          90,
+    "background_amplitude":    30,
+    "ball_intensity":          220,
+    "seed":                    1234
+  }
+}
+
+

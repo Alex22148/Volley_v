@@ -1,0 +1,104 @@
+{
+  "saved_at_epoch_ns": 1776168450579428000,
+  "model_pt": "C:\\Users\\Hyperbook\\python_project\\VolleyHub_K\\best.pt",
+  "output_dir": "C:\\Users\\Hyperbook\\python_project\\VolleyHub_K\\artifacts\\tensorrt_exports",
+  "overwrite_existing": false,
+  "device": 0,
+  "results": [
+    {
+      "name": "fp16_512_b1_static",
+      "ok": true,
+      "output_engine": "C:\\Users\\Hyperbook\\python_project\\VolleyHub_K\\artifacts\\tensorrt_exports\\best__fp16_512_b1_static__fp16__img512__b1__static.engine",
+      "elapsed_s": 242.65136250003707,
+      "config": {
+        "name": "fp16_512_b1_static",
+        "imgsz": 512,
+        "half": true,
+        "dynamic": false,
+        "batch": 1,
+        "workspace": 4.0,
+        "int8": false,
+        "nms": false,
+        "simplify": true,
+        "data": null
+      },
+      "error": ""
+    },
+    {
+      "name": "fp16_640_b1_static",
+      "ok": true,
+      "output_engine": "C:\\Users\\Hyperbook\\python_project\\VolleyHub_K\\artifacts\\tensorrt_exports\\best__fp16_640_b1_static__fp16__img640__b1__static.engine",
+      "elapsed_s": 182.17038359993603,
+      "config": {
+        "name": "fp16_640_b1_static",
+        "imgsz": 640,
+        "half": true,
+        "dynamic": false,
+        "batch": 1,
+        "workspace": 4.0,
+        "int8": false,
+        "nms": false,
+        "simplify": true,
+        "data": null
+      },
+      "error": ""
+    },
+    {
+      "name": "fp16_640_b1_dynamic",
+      "ok": true,
+      "output_engine": "C:\\Users\\Hyperbook\\python_project\\VolleyHub_K\\artifacts\\tensorrt_exports\\best__fp16_640_b1_dynamic__fp16__img640__b1__dyn.engine",
+      "elapsed_s": 179.47715279995464,
+      "config": {
+        "name": "fp16_640_b1_dynamic",
+        "imgsz": 640,
+        "half": true,
+        "dynamic": true,
+        "batch": 1,
+        "workspace": 4.0,
+        "int8": false,
+        "nms": false,
+        "simplify": true,
+        "data": null
+      },
+      "error": ""
+    },
+    {
+      "name": "fp16_960_b1_static",
+      "ok": true,
+      "output_engine": "C:\\Users\\Hyperbook\\python_project\\VolleyHub_K\\artifacts\\tensorrt_exports\\best__fp16_960_b1_static__fp16__img960__b1__static.engine",
+      "elapsed_s": 178.84705169999506,
+      "config": {
+        "name": "fp16_960_b1_static",
+        "imgsz": 960,
+        "half": true,
+        "dynamic": false,
+        "batch": 1,
+        "workspace": 4.0,
+        "int8": false,
+        "nms": false,
+        "simplify": true,
+        "data": null
+      },
+      "error": ""
+    },
+    {
+      "name": "fp16_640_b4_static",
+      "ok": true,
+      "output_engine": "C:\\Users\\Hyperbook\\python_project\\VolleyHub_K\\artifacts\\tensorrt_exports\\best__fp16_640_b4_static__fp16__img640__b4__static.engine",
+      "elapsed_s": 203.3947380000027,
+      "config": {
+        "name": "fp16_640_b4_static",
+        "imgsz": 640,
+        "half": true,
+        "dynamic": false,
+        "batch": 4,
+        "workspace": 4.0,
+        "int8": false,
+        "nms": false,
+        "simplify": true,
+        "data": null
+      },
+      "error": ""
+    }
+  ]
+}

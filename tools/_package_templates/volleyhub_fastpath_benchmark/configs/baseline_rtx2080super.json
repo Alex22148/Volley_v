@@ -1,0 +1,81 @@
+{
+  "baseline_name": "RTX 2080 Super",
+  "hardware": {
+    "gpu_name": "NVIDIA GeForce RTX 2080 Super",
+    "gpu_vram_gb": 8,
+    "compute_capability": "sm_75"
+  },
+  "runtime": {
+    "color_backend": "native_cuda_npp",
+    "native_backend_detail": "custom_cuda_kernel",
+    "inference_backend": "tensorrt",
+    "pipeline_mode": "gpu_zero_copy",
+    "half": true,
+    "batch": 4,
+    "capture_resolution": [1920, 1080]
+  },
+  "results": [
+    {
+      "name": "640x640",
+      "inference_input_shape": [640, 640],
+      "packet_ms_median": 11.64,
+      "packet_ms_p95": 15.73,
+      "fps_per_camera_median": 85.9,
+      "fps_per_camera_safe_p95": 63.6,
+      "total_images_per_second_safe_p95": 254.3,
+      "color_ms_median": 2.12,
+      "inference_ms_median": 7.62,
+      "pass_50fps_median": true,
+      "pass_50fps_safe_p95": true,
+      "stability_margin_ms": 4.27
+    },
+    {
+      "name": "960x960",
+      "inference_input_shape": [960, 960],
+      "packet_ms_median": 20.80,
+      "packet_ms_p95": 23.88,
+      "fps_per_camera_median": 48.1,
+      "fps_per_camera_safe_p95": 41.9,
+      "total_images_per_second_safe_p95": 167.5,
+      "color_ms_median": 2.73,
+      "inference_ms_median": 15.93,
+      "pass_50fps_median": false,
+      "pass_50fps_safe_p95": false,
+      "stability_margin_ms": -3.88
+    },
+    {
+      "name": "1280x1280",
+      "inference_input_shape": [1280, 1280],
+      "packet_ms_median": 22.28,
+      "packet_ms_p95": 25.95,
+      "fps_per_camera_median": 44.9,
+      "fps_per_camera_safe_p95": 38.5,
+      "total_images_per_second_safe_p95": 154.1,
+      "color_ms_median": 2.45,
+      "inference_ms_median": 17.87,
+      "pass_50fps_median": false,
+      "pass_50fps_safe_p95": false,
+      "stability_margin_ms": -5.95
+    },
+    {
+      "name": "1088x1920",
+      "inference_input_shape": [1088, 1920],
+      "packet_ms_median": 26.24,
+      "packet_ms_p95": 30.91,
+      "fps_per_camera_median": 38.1,
+      "fps_per_camera_safe_p95": 32.3,
+      "total_images_per_second_safe_p95": 129.4,
+      "color_ms_median": 2.72,
+      "inference_ms_median": 21.42,
+      "pass_50fps_median": false,
+      "pass_50fps_safe_p95": false,
+      "stability_margin_ms": -10.91
+    }
+  ],
+  "verdict": {
+    "fullhd_fps_per_camera_median": 38.1,
+    "fullhd_fps_per_camera_safe_p95": 32.3,
+    "largest_imgsz_passing_50fps_median": "640x640",
+    "largest_imgsz_passing_50fps_safe_p95": "640x640"
+  }
+}

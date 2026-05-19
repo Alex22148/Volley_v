@@ -1,0 +1,40 @@
+# VolleyHub fast-path benchmark — runtime requirements.
+# Install in a fresh venv:
+#   python -m venv .venv
+#   .\.venv\Scripts\Activate.ps1
+#   pip install -r requirements.txt
+
+# ---------------- core ----------------
+numpy>=1.24,<3.0
+opencv-python>=4.8.0
+pyyaml>=6.0
+
+# ---------------- ML / inference ----------------
+# IMPORTANT: install torch from the CUDA wheel index that matches your toolkit.
+# This generic line is a fallback — for CUDA 12.1 use:
+#   pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+# See requirements_gpu_notes.md for full details.
+torch>=2.0
+ultralytics>=8.0
+
+# TensorRT is required to load .engine files. Recent torch CUDA wheels bundle
+# `tensorrt` automatically; if not, install separately:
+#   pip install tensorrt
+# (The benchmark exits cleanly with TENSORRT_MISSING when absent.)
+# tensorrt
+
+# ---------------- JIT C++/CUDA build ----------------
+# Used by torch.utils.cpp_extension to build the native CUDA debayer kernel
+# at first import. Requires Visual Studio Build Tools + CUDA Toolkit on PATH.
+ninja
+
+# ---------------- reporting + charts ----------------
+matplotlib>=3.7
+
+# ---------------- tests (optional) ----------------
+pytest>=7
+
+# ---------------- real Basler camera mode (OPTIONAL) ----------------
+# Uncomment and install only if you have pylon SDK installed system-wide.
+# Without this the synthetic mode still runs; basler mode exits with PYPYLON_MISSING.
+# pypylon>=3.0

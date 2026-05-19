@@ -1,0 +1,8 @@
+{
+  "backend": "ultralytics",
+  "device": "cuda",
+  "engine_path": "",
+  "dynamic_shapes": false,
+  "workspace_gb": 2.0,
+  "notes": "Set backend=tensorrt and engine_path to .engine to run TensorRT path."
+}

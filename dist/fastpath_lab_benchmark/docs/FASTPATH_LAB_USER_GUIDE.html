@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang='pl'><head><meta charset='utf-8'>
+<title>Fastpath Lab Benchmark — instrukcja</title>
+<style>
+body { font-family: -apple-system, "Segoe UI", system-ui, Roboto, Arial, sans-serif;
+       max-width: 1040px; margin: 1.5em auto; padding: 0 1.2em; line-height: 1.55; color: #1f2328; }
+h1 { border-bottom: 2px solid #444; padding-bottom: 0.3em; margin-top: 1.4em; }
+h2 { border-bottom: 1px solid #aaa; padding-bottom: 0.2em; margin-top: 1.6em; }
+h3 { margin-top: 1.4em; color: #2a4365; }
+h4 { margin-top: 1.0em; }
+table { border-collapse: collapse; margin: 0.6em 0 1.0em 0; width: 100%; }
+th, td { border: 1px solid #ccc; padding: 4px 10px; text-align: left; vertical-align: top; }
+th { background: #f0f0f0; }
+tr:nth-child(even) td { background: #fafafa; }
+code { background: #f4f4f4; padding: 1px 5px; border-radius: 3px; font-size: 92%; font-family: Consolas, monospace; }
+pre { background: #1f2328; color: #eee; padding: 10px 14px; border-radius: 5px;
+      overflow-x: auto; font-family: Consolas, monospace; font-size: 92%; line-height: 1.4; }
+pre code { background: transparent; color: inherit; padding: 0; }
+blockquote { margin: 0.6em 0; padding: 0.6em 1em; background: #f6f8fa;
+             border-left: 4px solid #888; color: #404040; }
+ul, ol { padding-left: 1.6em; }
+hr { border: none; border-top: 1px solid #ccc; margin: 1.4em 0; }
+a { color: #1455a6; }
+img { max-width: 100%; }
+strong { color: #1a1a1a; }
+</style>
+</head><body>
+<h1>FASTPATH LAB BENCHMARK — instrukcja obsługi</h1>
+<blockquote><p>Wersja dla testera zewnętrznego. Nie zakłada znajomości architektury systemu VolleyHub_K. Po przeczytaniu tej instrukcji potrafisz uruchomić paczkę krok po kroku i odczytać z raportu odpowiedzi na dwa kluczowe pytania:</p>
+<ol>
+<li><em>Ile FPS można uzyskać przy inferencji Full HD-like (1088×1920)?</em></li>
+<li><em>Jaki największy rozmiar inferencji spełnia stabilne 50 FPS?</em></li>
+</ol></blockquote>
+<hr/>
+<h2>1. Cel paczki</h2>
+<p><code>fastpath_lab_benchmark.zip</code> to <strong>proste, jednoznaczne narzędzie eksperymentalne</strong> do pomiaru wydajności GPU. <strong>Nie jest to</strong> miniaturowa aplikacja produkcyjna — jest to celowo zminimalizowany zestaw skryptów, w którym każdy etap można uruchomić osobno i zobaczyć jego koszt.</p>
+<p>Paczka umożliwia pomiar:</p>
+<ul>
+<li>samej inferencji TensorRT,</li>
+<li>samego toru color (debayer + resize + normalize) na GPU,</li>
+<li>pełnego syntetycznego toru RAW → GPU color → TensorRT,</li>
+<li>sweepu rozdzielczości inferencji (640, 960, 1280, 1088×1920),</li>
+<li>pojedynczego, własnego eksperymentu sterowanego plikiem JSON.</li>
+</ul>
+<p><strong>Ten benchmark NIE mierzy:</strong></p>
+<ul>
+<li>realnego grabowania z kamer Basler / pypylon,</li>
+<li>GUI (preview, podgląd, panele sterowania),</li>
+<li>ring buffera / shared memory / kolejek produkcyjnych,</li>
+<li>synchronizacji sprzętowej między kamerami,</li>
+<li>zapisu na dysk, kompresji wideo,</li>
+<li>NMS ani postprocessu detekcji,</li>
+<li>pełnego działania aplikacji VolleyHub.</li>
+</ul>
+<p><strong>Co więc właściwie mierzy?</strong> <strong>Górną granicę wydajności toru GPU</strong> oraz <strong>koszt poszczególnych etapów</strong> (debayer, inferencja). Jeśli ten benchmark daje PASS dla 50 FPS, to znaczy że <strong>GPU ma potencjał</strong> — ale to nadal nie dowód, że cała aplikacja produkcyjna osiągnie 50 FPS na końcu (kamery, IPC, GUI dokładają swoje).</p>
+<hr/>
+<h2>2. Najważniejsze pojęcia</h2>
+<h3>Packet</h3>
+<p><code>1 packet</code> = jedna paczka 4 obrazów, <strong>po jednym z każdej kamery</strong>. Engine TensorRT z batch=4 wykonuje inferencję dla całego packetu za jednym wywołaniem.</p>
+<h3>FPS per camera</h3>
+<p><code>FPS per camera</code> = liczba packetów na sekundę.</p>
+<blockquote><p>Przykład: 50 packetów / s = 50 FPS na kamerę = 200 obrazów / s łącznie dla 4 kamer.</p></blockquote>
+<h3>Batch</h3>
+<p><code>batch=4</code> oznacza, że engine TensorRT przetwarza <strong>4 obrazy naraz</strong> w jednym wywołaniu. To jest właściwość pliku <code>.engine</code> (statyczna), nie da się jej zmienić bez przebudowy.</p>
+<h3>active_cameras</h3>
+<p>Ile slotów w batchu jest <strong>wypełnionych realną treścią</strong> (piłka, tło). Pozostałe sloty zawierają ciemne, puste ramki. Ten parametr służy <strong>do interpretacji scenariusza</strong> (&quot;a co jeśli mam tylko 3 kamery podłączone?&quot;), <strong>a nie do skrócenia GPU</strong>. Engine static batch=4 nadal liczy 4 obrazy.</p>
+<h3>target_fps</h3>
+<ul>
+<li><code>target_fps &gt; 0</code>: skrypt 06 <strong>pacingowo</strong> próbuje utrzymać taki rytm (np. 50 packetów / s → jeden packet co 20 ms).</li>
+<li><code>target_fps = 0</code>: skrypt działa w <strong>free-run</strong> — mierzy maksymalną przepustowość bez sztucznego ograniczenia.</li>
+</ul>
+<h3>p95</h3>
+<p><code>p95</code> to wartość bezpieczna (pesymistyczna). Mówi: w 95% przypadków czas był <strong>lepszy lub równy</strong> tej liczbie. Zwykle <code>p95 &gt; median</code>. Jeśli <code>packet_ms_p95 &lt;= 20 ms</code>, można mówić o <strong>stabilnych 50 FPS</strong>.</p>
+<h3>Budżet 50 FPS</h3>
+<pre><code>
+packet_budget_ms = 1000 ms / 50 FPS = 20 ms
+</code></pre>
+<p>Stabilne 50 FPS = <code>packet_ms_p95 &lt;= 20 ms</code>. Margines stabilności to różnica <code>20 - packet_ms_p95</code> (im więcej tym lepiej).</p>
+<hr/>
+<h2>3. Struktura paczki</h2>
+<pre><code>
+fastpath_lab_benchmark/
+├── README.md                       (krótkie wprowadzenie)
+├── requirements.txt
+├── RUN_ALL.ps1                     (pełny sweep + raport)
+├── CHECK_ENV.ps1                   (sprawdzenie środowiska)
+│
+├── configs/                        (pliki konfiguracyjne)
+│   ├── benchmark_config.yaml       (domyślne wartości dla RUN_ALL)
+│   ├── baseline_rtx2080super.json  (liczby referencyjne)
+│   └── single_test.json            (config 1 eksperymentu)
+│
+├── engines/                        (pliki TensorRT .engine)
+│   ├── README_ENGINES.md
+│   └── best__fp16_*.engine
+│
+├── scripts/                        (skrypty uruchamiane przez testera)
+│   ├── 00_check_env.py
+│   ├── 01_benchmark_inference_only.py
+│   ├── 02_benchmark_color_only.py
+│   ├── 03_benchmark_full_synthetic_path.py
+│   ├── 04_resolution_sweep.py
+│   ├── 05_make_report.py
+│   └── 06_run_single_test.py
+│
+├── src/                            (małe moduły pomocnicze, czytelne)
+│   ├── trt_runner.py
+│   ├── cuda_debayer.py
+│   ├── synthetic_raw.py
+│   ├── metrics.py
+│   ├── report_builder.py
+│   └── native_debayer/             (custom CUDA kernel + adapter)
+│
+├── results/                        (wyniki JSON + CSV — wypełni się po RUN)
+├── reports/                        (raport HTML/MD + wykresy)
+└── docs/                           (TA instrukcja)
+</code></pre>
+<table>
+<thead><tr><th>folder</th><th>rola</th></tr></thead>
+<tbody>
+<tr><td><code>configs/</code></td><td>pliki konfiguracyjne eksperymentów (YAML/JSON)</td></tr>
+<tr><td><code>engines/</code></td><td>pliki TensorRT <code>.engine</code></td></tr>
+<tr><td><code>scripts/</code></td><td>skrypty CLI uruchamiane przez testera</td></tr>
+<tr><td><code>src/</code></td><td>małe moduły (~150–250 linii każdy) używane przez skrypty</td></tr>
+<tr><td><code>results/</code></td><td>surowe wyniki JSON / CSV z każdego uruchomienia</td></tr>
+<tr><td><code>reports/</code></td><td>raporty HTML / Markdown + wykresy PNG</td></tr>
+<tr><td><code>docs/</code></td><td>dokumentacja użytkownika (ten plik)</td></tr>
+</tbody>
+</table>
+<hr/>
+<h2>4. Szybki start</h2>
+<h3>Krok 1 — rozpakuj ZIP</h3>
+<pre><code>
+C:\benchmark\fastpath_lab_benchmark\
+</code></pre>
+<h3>Krok 2 — zainstaluj zależności</h3>
+<pre><code class="lang-powershell">
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install --upgrade pip
+pip install --index-url https://download.pytorch.org/whl/cu121 torch==2.5.1
+pip install tensorrt==10.16.*
+pip install -r requirements.txt
+</code></pre>
+<h3>Krok 3 — uruchom sprawdzenie środowiska</h3>
+<pre><code class="lang-powershell">
+.\CHECK_ENV.ps1
+</code></pre>
+<p>(równoważne: <code>python scripts\00_check_env.py</code>)</p>
+<h3>Krok 4 — uruchom pełny zestaw testów</h3>
+<pre><code class="lang-powershell">
+.\RUN_ALL.ps1
+</code></pre>
+<p>(<code>-DurationS 15 -Warmup 5</code> dla szybszego przebiegu)</p>
+<h3>Krok 5 — otwórz raport</h3>
+<pre><code>
+reports\fastpath_lab_report.html
+</code></pre>
+<hr/>
+<h2>5. Kolejność analizy — ogólny przebieg</h2>
+<p>Skrypty są ponumerowane celowo. Logiczny przepływ:</p>
+<table>
+<thead><tr><th>#</th><th>skrypt</th><th>rola</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>00_check_env.py</code></td><td>sprawdza, czy maszyna ma wszystko czego trzeba</td></tr>
+<tr><td>2</td><td><code>01_benchmark_inference_only.py</code></td><td>mierzy sam TensorRT, bez color, bez RAW</td></tr>
+<tr><td>3</td><td><code>02_benchmark_color_only.py</code></td><td>mierzy sam GPU debayer + resize + normalize</td></tr>
+<tr><td>4</td><td><code>03_benchmark_full_synthetic_path.py</code></td><td>mierzy pełny tor: RAW → color → TRT</td></tr>
+<tr><td>5</td><td><code>04_resolution_sweep.py</code></td><td>powtarza (4) dla 640, 960, 1280, 1088×1920</td></tr>
+<tr><td>6</td><td><code>05_make_report.py</code></td><td>składa wszystko w raport HTML + Markdown + wykresy</td></tr>
+<tr><td>7</td><td><code>06_run_single_test.py</code></td><td>jeden własny eksperyment z <code>single_test.json</code></td></tr>
+</tbody>
+</table>
+<p>Najszybsza ścieżka do odpowiedzi: <strong>(1) → (5) → (6) raportu</strong>. Skrypty 1–4 są dla głębszej analizy (gdzie konkretnie jest bottleneck).</p>
+<hr/>
+<h2>6. Skrypt <code>00_check_env.py</code></h2>
+<h3>Do czego służy</h3>
+<p>Sprawdza środowisko maszyny testera. Bez tego skryptu nie wiadomo, czy w ogóle ma sens uruchamiać dalsze benchmarki.</p>
+<h3>Co sprawdza</h3>
+<ul>
+<li>wersję Pythona,</li>
+<li>OS,</li>
+<li><code>torch</code> + dostępność CUDA + nazwę GPU + VRAM,</li>
+<li><code>tensorrt</code>,</li>
+<li><code>matplotlib</code> (opcjonalnie — do wykresów),</li>
+<li>native CUDA debayer (custom CUDA kernel z <code>src/native_debayer</code>),</li>
+<li>obecność plików <code>.engine</code> w <code>engines/</code>.</li>
+</ul>
+<h3>Czego NIE mierzy</h3>
+<ul>
+<li>Nie mierzy FPS.</li>
+<li>Nie uruchamia inferencji.</li>
+<li>Nie uruchamia GPU benchmarku.</li>
+<li>Nie kompiluje engine (jeśli brakuje — tylko raportuje brak).</li>
+</ul>
+<h3>Komenda</h3>
+<pre><code class="lang-powershell">
+python scripts\00_check_env.py
+</code></pre>
+<h3>Pliki wynikowe</h3>
+<pre><code>
+results\environment.json
+results\environment.md
+</code></pre>
+<h3>Jak interpretować wynik</h3>
+<table>
+<thead><tr><th>status</th><th>znaczenie</th></tr></thead>
+<tbody>
+<tr><td><strong>OK</strong></td><td>komponent dostępny</td></tr>
+<tr><td><strong>WARNING</strong></td><td>komponent opcjonalny (np. matplotlib — bez niego raport powstanie, ale bez wykresów)</td></tr>
+<tr><td><strong>FAIL</strong></td><td>komponent krytyczny — benchmark GPU może nie działać</td></tr>
+</tbody>
+</table>
+<p>Typowe usterki:</p>
+<ul>
+<li><code>CUDA_UNAVAILABLE</code> → benchmark GPU nie ruszy. Sterownik NVIDIA / <code>torch</code> GPU build.</li>
+<li><code>TENSORRT_MISSING</code> → nie będzie inferencji TensorRT.</li>
+<li><code>ENGINE_MISSING</code> → brakuje konkretnego pliku <code>.engine</code>.</li>
+<li><code>NATIVE_BACKEND_MISSING</code> → custom CUDA debayer nie buduje się (brak Visual C++ Build Tools lub CUDA Toolkit). Skrypty kolorowe i pełny tor przełączą się na wolniejszy <code>torch_gpu_fallback</code>.</li>
+</ul>
+<hr/>
+<h2>7. Skrypt <code>01_benchmark_inference_only.py</code></h2>
+<h3>Do czego służy</h3>
+<p>Mierzy <strong>samą inferencję TensorRT</strong>. Daje odpowiedź na pytanie: &quot;czy sam engine jest wystarczająco szybki dla danego input size?&quot;.</p>
+<h3>Co dokładnie mierzy</h3>
+<pre><code>
+CUDA tensor [batch, 3, H, W]   (losowy, alokowany raz)
+   → TensorRT forward (execute_async_v3)
+   → CUDA synchronize
+   → pomiar czasu (CUDA event)
+</code></pre>
+<h3>Czego NIE mierzy</h3>
+<ul>
+<li>nie mierzy kamer,</li>
+<li>nie mierzy RAW / Bayer,</li>
+<li>nie mierzy debayera,</li>
+<li>nie mierzy resize / normalize,</li>
+<li>nie mierzy GUI / ring buffera / kolejek,</li>
+<li>nie mierzy generacji syntetycznego obrazu (tensor jest losowy, zaalokowany raz).</li>
+</ul>
+<h3>Kiedy go używać</h3>
+<p>Gdy chcesz wiedzieć: &quot;czy <em>sam</em> TensorRT engine wyrabia się dla danego input size na tym GPU?&quot; Jeśli ten test daje FAIL dla 1088×1920, to nie warto dalej walczyć — całość będzie wolniejsza.</p>
+<h3>Przykład komendy</h3>
+<pre><code class="lang-powershell">
+python scripts\01_benchmark_inference_only.py `
+    --engine engines\best__fp16_640_b4_static.engine `
+    --input-shape 640 640 --batch 4 --duration-s 30
+</code></pre>
+<h3>Najważniejsze parametry</h3>
+<table>
+<thead><tr><th>flaga</th><th>znaczenie</th></tr></thead>
+<tbody>
+<tr><td><code>--engine</code></td><td>ścieżka do pliku TensorRT <code>.engine</code></td></tr>
+<tr><td><code>--input-shape H W</code></td><td>rozmiar wejścia (musi pasować do engine)</td></tr>
+<tr><td><code>--batch</code></td><td>batch (musi pasować do engine)</td></tr>
+<tr><td><code>--duration-s</code></td><td>czas pomiaru po warmupie</td></tr>
+<tr><td><code>--warmup</code></td><td>iteracje rozgrzewkowe (odrzucane ze statystyk)</td></tr>
+</tbody>
+</table>
+<h3>Pliki wynikowe</h3>
+<pre><code>
+results\inference_only_&lt;HxW&gt;.json
+results\inference_only_&lt;HxW&gt;.csv
+</code></pre>
+<h3>Najważniejsze metryki</h3>
+<ul>
+<li><code>inference_ms_median</code>, <code>inference_ms_p95</code></li>
+<li><code>packet_ms_median</code>, <code>packet_ms_p95</code></li>
+<li><code>fps_per_camera_median</code>, <code>fps_per_camera_safe_p95</code></li>
+<li><code>pass_50fps_safe_p95</code></li>
+</ul>
+<h3>Interpretacja</h3>
+<table>
+<thead><tr><th>warunek</th><th>wniosek</th></tr></thead>
+<tbody>
+<tr><td><code>inference_ms_p95 &gt; 20 ms</code></td><td>sama inferencja jest zbyt wolna dla 50 FPS, niezależnie od reszty</td></tr>
+<tr><td><code>inference_ms_p95 &lt; 20 ms</code></td><td>sama inferencja się mieści, ale trzeba doliczyć koszt color/resize i overhead</td></tr>
+</tbody>
+</table>
+<hr/>
+<h2>8. Skrypt <code>02_benchmark_color_only.py</code></h2>
+<h3>Do czego służy</h3>
+<p>Mierzy <strong>sam tor GPU color</strong>: debayer + resize + normalize.</p>
+<h3>Co dokładnie mierzy</h3>
+<pre><code>
+synthetic RAW/Bayer batch [4, capH, capW]
+   → upload na CUDA
+   → native CUDA debayer (custom_cuda_kernel)
+   → bilinear resize do (outH, outW)
+   → normalize do float [0,1]
+   → float16
+   → output: CUDA tensor [4, 3, outH, outW]
+</code></pre>
+<h3>Czego NIE mierzy</h3>
+<ul>
+<li>nie mierzy TensorRT,</li>
+<li>nie mierzy detekcji,</li>
+<li>nie mierzy kamer Basler,</li>
+<li>nie mierzy GUI,</li>
+<li>nie mierzy kolejek produkcyjnych.</li>
+</ul>
+<h3>Przykład komendy</h3>
+<pre><code class="lang-powershell">
+python scripts\02_benchmark_color_only.py `
+    --capture-shape 1080 1920 --output-shape 640 640 `
+    --batch 4 --duration-s 30
+</code></pre>
+<h3>Parametry</h3>
+<table>
+<thead><tr><th>flaga</th><th>znaczenie</th></tr></thead>
+<tbody>
+<tr><td><code>--capture-shape H W</code></td><td>rozdzielczość syntetycznego RAW Bayer</td></tr>
+<tr><td><code>--output-shape H W</code></td><td>docelowy rozmiar po resize</td></tr>
+<tr><td><code>--batch</code></td><td>batch</td></tr>
+<tr><td><code>--bayer-pattern</code></td><td>RG / BG / GR / GB</td></tr>
+<tr><td><code>--backend</code></td><td><code>auto</code> / <code>native</code> / <code>torch</code></td></tr>
+</tbody>
+</table>
+<h3>Pliki wynikowe</h3>
+<pre><code>
+results\color_only_&lt;HxW&gt;.json
+results\color_only_&lt;HxW&gt;.csv
+</code></pre>
+<h3>Najważniejsze metryki</h3>
+<ul>
+<li><code>color_ms_median</code>, <code>color_ms_p95</code></li>
+<li><code>output_location</code> (powinno być <code>&quot;cuda&quot;</code>)</li>
+<li><code>gpu_roundtrip</code> (powinno być <code>false</code>)</li>
+<li><code>backend_used</code> (<code>native_cuda_kernel</code> lub <code>torch_gpu_fallback</code>)</li>
+</ul>
+<h3>Interpretacja</h3>
+<table>
+<thead><tr><th>warunek</th><th>wniosek</th></tr></thead>
+<tbody>
+<tr><td><code>color_ms_p95</code> małe (np. &lt; 3 ms)</td><td>color nie jest bottleneckiem</td></tr>
+<tr><td><code>color_ms_p95</code> duże</td><td>bottleneck w debayer / resize</td></tr>
+<tr><td><code>output_location = &quot;cuda&quot;</code> i <code>gpu_roundtrip = false</code></td><td>tor jest poprawny GPU-only, bez CPU bounce</td></tr>
+<tr><td><code>backend_used = &quot;torch_gpu_fallback&quot;</code></td><td>native kernel nie zbudował się — wynik jest 2× wolniejszy niż mógłby być</td></tr>
+</tbody>
+</table>
+<hr/>
+<h2>9. Skrypt <code>03_benchmark_full_synthetic_path.py</code></h2>
+<h3>Do czego służy</h3>
+<p>Mierzy <strong>pełny syntetyczny tor GPU</strong> — bez produkcyjnej aplikacji, ale z wszystkimi etapami GPU jednocześnie.</p>
+<h3>Co dokładnie mierzy</h3>
+<pre><code>
+synthetic Bayer batch [4, capH, capW] (numpy)
+   → CUDA upload
+   → native CUDA debayer
+   → bilinear resize + normalize
+   → TensorRT inference (zero-copy z color output)
+   → minimalny postprocess (tylko shape check, brak NMS)
+</code></pre>
+<h3>Czego NIE mierzy</h3>
+<ul>
+<li>nie mierzy Basler RetrieveResult,</li>
+<li>nie mierzy realnych timestampów,</li>
+<li>nie mierzy GUI,</li>
+<li>nie mierzy ring buffera,</li>
+<li>nie mierzy kolejek produkcyjnych,</li>
+<li>nie mierzy zapisu na dysk,</li>
+<li>nie mierzy realnej synchronizacji sprzętowej.</li>
+</ul>
+<h3>Przykład komendy</h3>
+<pre><code class="lang-powershell">
+python scripts\03_benchmark_full_synthetic_path.py `
+    --engine engines\best__fp16_640_b4_static.engine `
+    --capture-shape 1080 1920 --input-shape 640 640 `
+    --batch 4 --duration-s 30
+</code></pre>
+<h3>Pliki wynikowe</h3>
+<pre><code>
+results\full_synthetic_&lt;HxW&gt;.json
+results\full_synthetic_&lt;HxW&gt;.csv
+</code></pre>
+<h3>Najważniejsze metryki</h3>
+<ul>
+<li><code>color_ms_median</code> / <code>_p95</code></li>
+<li><code>inference_ms_median</code> / <code>_p95</code></li>
+<li><code>postprocess_ms_median</code> / <code>_p95</code></li>
+<li><code>packet_ms_median</code> / <code>_p95</code> (to jest &quot;całość&quot; pakietu na GPU)</li>
+<li><code>fps_per_camera_median</code>, <code>fps_per_camera_safe_p95</code></li>
+<li><code>pass_50fps_safe_p95</code></li>
+<li><code>zero_copy_to_inference</code> (powinno być <code>true</code>)</li>
+<li><code>fallback_used</code> (powinno być <code>false</code> w zdrowej konfiguracji)</li>
+</ul>
+<h3>Interpretacja</h3>
+<p><strong>To jest najważniejszy test dla pytania</strong>:</p>
+<blockquote><p>Czy tor GPU ma potencjał osiągnąć 50 FPS?</p></blockquote>
+<table>
+<thead><tr><th>warunek</th><th>wniosek</th></tr></thead>
+<tbody>
+<tr><td><code>packet_ms_p95 &lt;= 20 ms</code></td><td>tor GPU spełnia stabilne 50 FPS</td></tr>
+<tr><td><code>packet_ms_p95 &gt; 20 ms</code></td><td>dany rozmiar inferencji jest za ciężki dla stabilnych 50 FPS</td></tr>
+<tr><td><code>fallback_used = true</code></td><td>wynik <strong>NIE</strong> odpowiada prawdziwemu fast path — coś jest nie tak ze środowiskiem</td></tr>
+<tr><td><code>zero_copy_to_inference = false</code></td><td>między color a inferencją jest CPU bounce — wynik gorszy niż mógłby być</td></tr>
+</tbody>
+</table>
+<hr/>
+<h2>10. Skrypt <code>04_resolution_sweep.py</code></h2>
+<h3>Do czego służy</h3>
+<p>Automatycznie uruchamia pełny tor (<code>03_*</code>) dla zestawu rozmiarów inferencji. To jest <strong>główny skrypt</strong> dla odpowiedzi na dwa kluczowe pytania użytkownika.</p>
+<p>Domyślnie testuje:</p>
+<ul>
+<li>640 × 640</li>
+<li>960 × 960</li>
+<li>1280 × 1280</li>
+<li>1088 × 1920 (Full HD-like)</li>
+</ul>
+<h3>Co mierzy</h3>
+<p>Dla każdego rozmiaru: dokładnie to co <code>03_benchmark_full_synthetic_path.py</code>.</p>
+<h3>Przykład komendy</h3>
+<pre><code class="lang-powershell">
+python scripts\04_resolution_sweep.py --duration-s 30
+</code></pre>
+<h3>Pliki wynikowe</h3>
+<pre><code>
+results\resolution_sweep.json
+results\resolution_sweep.csv
+results\full_synthetic_&lt;HxW&gt;.{json,csv}   (po jednym pliku na rozmiar)
+</code></pre>
+<h3>Najważniejsze metryki (per wiersz)</h3>
+<ul>
+<li><code>inference_input_shape</code></li>
+<li><code>pixels_mpx</code></li>
+<li><code>color_ms_p95</code></li>
+<li><code>inference_ms_p95</code></li>
+<li><code>packet_ms_p95</code></li>
+<li><code>fps_per_camera_median</code>, <code>fps_per_camera_safe_p95</code></li>
+<li><code>pass_50fps_safe_p95</code></li>
+<li><code>stability_margin_ms</code></li>
+</ul>
+<h3>Interpretacja</h3>
+<p>Ten skrypt <strong>bezpośrednio odpowiada</strong> na:</p>
+<ol>
+<li><strong>Ile FPS daje Full HD-like inference?</strong> → wiersz <code>1088x1920</code>, pole <code>fps_per_camera_safe_p95</code>.</li>
+<li><strong>Jaki największy input spełnia 50 FPS?</strong> → największy wiersz (po <code>pixels_mpx</code>) z <code>pass_50fps_safe_p95 = true</code>.</li>
+</ol>
+<p>Przykład:</p>
+<blockquote><p>Jeżeli 1088×1920 ma <code>fps_per_camera_safe_p95 = 32</code> → Full HD inference to tryb ~30 FPS, nie 50.</p>
+<p>Jeżeli 640×640 ma <code>pass_50fps_safe_p95 = true</code> → 640×640 spełnia stabilne 50 FPS.</p></blockquote>
+<hr/>
+<h2>11. Skrypt <code>05_make_report.py</code></h2>
+<h3>Do czego służy</h3>
+<p>Składa wyniki z <code>results/</code> w <strong>raport HTML + Markdown + wykresy</strong>. Nie uruchamia żadnych nowych benchmarków — tylko agreguje to co już jest na dysku.</p>
+<h3>Co robi</h3>
+<p>Czyta:</p>
+<ul>
+<li><code>results/full_synthetic_*.json</code> (wyniki sweepu),</li>
+<li><code>results/environment.json</code> (info o maszynie),</li>
+<li><code>configs/baseline_rtx2080super.json</code> (liczby referencyjne).</li>
+</ul>
+<p>Generuje:</p>
+<ul>
+<li>raport HTML,</li>
+<li>raport Markdown,</li>
+<li>4 wykresy PNG (FPS vs rozmiar, packet_ms vs 20 ms budget, inference vs Mpx, stage breakdown).</li>
+</ul>
+<h3>Komenda</h3>
+<pre><code class="lang-powershell">
+python scripts\05_make_report.py
+</code></pre>
+<h3>Pliki wynikowe</h3>
+<pre><code>
+reports\fastpath_lab_report.html
+reports\fastpath_lab_report.md
+reports\charts\fps_per_camera.png
+reports\charts\packet_ms_vs_budget.png
+reports\charts\inference_vs_mpx.png
+reports\charts\stage_breakdown.png
+</code></pre>
+<h3>Sekcje raportu</h3>
+<ul>
+<li><strong>Machine</strong> — co za maszyna (GPU, CUDA, TRT).</li>
+<li><strong>Direct answers</strong> — Q1 (Full HD-like FPS) i Q2 (największy 50 FPS).</li>
+<li><strong>Suggested presets</strong> — LIVE_50FPS / QUALITY_40FPS / FULLHD_30FPS.</li>
+<li><strong>Resolution sweep table</strong> — pełna tabela wyników.</li>
+<li><strong>Baseline comparison</strong> — porównanie z referencyjnym RTX 2080 Super.</li>
+<li><strong>Charts</strong> — 4 wykresy.</li>
+<li><strong>What this benchmark does NOT measure</strong> — disclaimer.</li>
+</ul>
+<hr/>
+<h2>12. Skrypt <code>06_run_single_test.py</code></h2>
+<h3>Do czego służy</h3>
+<p>Pozwala uruchomić <strong>jeden, własny eksperyment</strong> — bez sweepu, z parametrami pobranymi z jednego pliku JSON. Najprostszy tryb dla testera, który chce powiedzieć: &quot;uruchom dokładnie ten scenariusz&quot;.</p>
+<h3>Plik konfiguracyjny</h3>
+<pre><code>
+configs\single_test.json
+</code></pre>
+<h3>Komenda</h3>
+<pre><code class="lang-powershell">
+python scripts\06_run_single_test.py --config configs\single_test.json
+</code></pre>
+<h3>Co można zmieniać w <code>single_test.json</code></h3>
+<table>
+<thead><tr><th>pole</th><th>znaczenie</th></tr></thead>
+<tbody>
+<tr><td><code>engine</code></td><td>ścieżka do <code>.engine</code></td></tr>
+<tr><td><code>capture_shape_hw</code></td><td>rozmiar syntetycznego RAW Bayer <code>[H, W]</code></td></tr>
+<tr><td><code>inference_shape_hw</code></td><td>rozmiar wejścia do inferencji <code>[H, W]</code> — musi pasować do engine</td></tr>
+<tr><td><code>batch</code></td><td>batch (musi pasować do engine)</td></tr>
+<tr><td><code>active_cameras</code></td><td>1..batch — ile slotów ma realną treść; reszta to ciemne ramki</td></tr>
+<tr><td><code>target_fps</code></td><td>docelowy FPS; 0 = free-run</td></tr>
+<tr><td><code>duration_s</code></td><td>czas pomiaru po warmupie</td></tr>
+<tr><td><code>warmup</code></td><td>iteracje rozgrzewkowe</td></tr>
+<tr><td><code>bayer_pattern</code></td><td>RG / BG / GR / GB</td></tr>
+<tr><td><code>synthetic_source.dtype</code></td><td>uint8 / uint16</td></tr>
+<tr><td><code>synthetic_source.noise_sigma</code></td><td>szum Gaussa (sigma w 0..255)</td></tr>
+<tr><td><code>synthetic_source.ball_enabled</code></td><td>piłka tak/nie</td></tr>
+<tr><td><code>synthetic_source.ball_radius_px</code></td><td>promień piłki</td></tr>
+<tr><td><code>synthetic_source.ball_speed_px_per_frame</code></td><td>prędkość piłki</td></tr>
+<tr><td><code>synthetic_source.base_intensity</code></td><td>jasność tła</td></tr>
+<tr><td><code>synthetic_source.background_amplitude</code></td><td>amplituda gradientu</td></tr>
+<tr><td><code>synthetic_source.ball_intensity</code></td><td>jasność piłki</td></tr>
+<tr><td><code>synthetic_source.seed</code></td><td>seed RNG</td></tr>
+</tbody>
+</table>
+<h3>Co mierzy</h3>
+<p>GPU fast path dla jednego scenariusza: synthetic RAW batch → GPU color → TensorRT.</p>
+<h3>Czego NIE mierzy</h3>
+<ul>
+<li>nie mierzy kosztu generowania syntetycznej ramki w pętli,</li>
+<li>nie mierzy realnej kamery,</li>
+<li>nie mierzy GUI,</li>
+<li>nie mierzy kolejek,</li>
+<li>nie mierzy ring buffera.</li>
+</ul>
+<blockquote><p><strong>Uwaga ważna:</strong> Batch syntetyczny jest <strong>generowany raz</strong> i reusowany w pętli, <strong>aby mierzyć tor GPU</strong>, a nie CPU-side rendering. Bez tego przy 1080×1920×4 generacja w numpy zdominowałaby pętlę i ukryła prawdziwą wydajność GPU.</p></blockquote>
+<h3>Jak interpretować output</h3>
+<table>
+<thead><tr><th>pole</th><th>znaczenie</th></tr></thead>
+<tbody>
+<tr><td><code>actual sustained FPS</code></td><td>rzeczywiście utrzymany FPS (iterations / elapsed) — łącznie z pacing sleeps</td></tr>
+<tr><td><code>overruns</code></td><td>liczba iteracji, w których GPU/tor nie zmieścił się w okresie</td></tr>
+<tr><td><code>target_hit</code></td><td>YES gdy actual FPS ≥ 98% target <strong>i</strong> overrun_ratio &lt; 5%</td></tr>
+<tr><td><code>FPS per camera (uncapped median/p95)</code></td><td>maksymalna przepustowość bez pacingu</td></tr>
+</tbody>
+</table>
+<p><code>target_hit = NO</code> → konfiguracja <strong>nie utrzymuje</strong> zadanego FPS.</p>
+<h3>Przykład interpretacji</h3>
+<p><strong>Scenariusz</strong>: <code>batch=4, active_cameras=4, target_fps=50</code></p>
+<ul>
+<li><code>sustained FPS = 49.99</code>, <code>overruns = 0/150</code>, <code>target_hit = YES</code></li>
+<li><strong>Wniosek:</strong> konfiguracja utrzymuje 50 FPS dla 4 kamer.</li>
+</ul>
+<p><strong>Scenariusz</strong>: <code>batch=4, active_cameras=1, target_fps=0</code> (free-run)</p>
+<ul>
+<li>pokazuje <strong>maksymalną przepustowość</strong>,</li>
+<li>ale engine static batch=4 nadal wykonuje pracę dla 4 obrazów —</li>
+</ul>
+<p><code>active_cameras=1</code> w tym scenariuszu <strong>nie zmniejsza</strong> GPU.</p>
+<hr/>
+<h2>13. Moduły w <code>src/</code></h2>
+<p>Każdy moduł jest mały (~150–250 linii) i można przeczytać go w 5 minut. Nie ma ukrytej magii.</p>
+<h3><code>src/trt_runner.py</code></h3>
+<p><strong>Rola:</strong></p>
+<ul>
+<li>ładuje TensorRT <code>.engine</code>,</li>
+<li>pomija nagłówek Ultralytics jeśli jest,</li>
+<li>alokuje bufory I/O (torch tensors na CUDA),</li>
+<li>wykonuje <code>execute_async_v3</code>,</li>
+<li>mierzy inferencję CUDA event&#x27;em.</li>
+</ul>
+<p><strong>Input:</strong> CUDA tensor <code>[B, 3, H, W]</code>. <strong>Output:</strong> dict wyjściowych tensorów + <code>inference_ms</code>.</p>
+<h3><code>src/cuda_debayer.py</code></h3>
+<p><strong>Rola:</strong></p>
+<ul>
+<li>owija native CUDA debayer (custom kernel),</li>
+<li>fallback na torch jeśli native niedostępny,</li>
+<li>robi resize + normalize w jednym kroku,</li>
+<li>pilnuje, żeby output był na CUDA.</li>
+</ul>
+<p><strong>Input:</strong> RAW Bayer batch <code>[B, H, W]</code> uint8 (numpy lub torch). <strong>Output:</strong> CUDA tensor <code>[B, 3, outH, outW]</code> float16/float32 + metadane backendu.</p>
+<h3><code>src/synthetic_raw.py</code></h3>
+<p><strong>Rola:</strong></p>
+<ul>
+<li>generuje syntetyczny obraz RAW/Bayer,</li>
+<li>piłka + gradientowe tło + opcjonalny szum Gaussa,</li>
+<li>powtarzalne testy (<code>seed</code>).</li>
+</ul>
+<p><strong>Pola konfiguracji</strong> dokładnie pasują do produkcyjnego <code>SyntheticSourceConfig</code> (mapowanie 1:1).</p>
+<blockquote><p>W <code>06_run_single_test.py</code> batch jest generowany raz i reusowany.</p></blockquote>
+<h3><code>src/metrics.py</code></h3>
+<p><strong>Rola:</strong></p>
+<ul>
+<li>liczy medianę i p95 dla próbek czasu,</li>
+<li>liczy <code>fps_per_camera</code>,</li>
+<li>liczy verdict <code>pass_50fps_safe_p95</code>,</li>
+<li>liczy <code>stability_margin_ms</code>.</li>
+</ul>
+<h3><code>src/report_builder.py</code></h3>
+<p><strong>Rola:</strong></p>
+<ul>
+<li>czyta <code>results/*.json</code>,</li>
+<li>porównuje z baseline RTX 2080 Super,</li>
+<li>buduje raport Markdown + HTML,</li>
+<li>generuje wykresy matplotlib.</li>
+</ul>
+<hr/>
+<h2>14. Typowy przebieg analizy</h2>
+<h3>Scenariusz A — szybka odpowiedź na dwa pytania</h3>
+<pre><code class="lang-powershell">
+python scripts\00_check_env.py
+python scripts\04_resolution_sweep.py --duration-s 30
+python scripts\05_make_report.py
+start reports\fastpath_lab_report.html
+</code></pre>
+<p>W raporcie sprawdź sekcję <strong>Direct answers</strong>:</p>
+<ul>
+<li>Q1: Full HD-like inference FPS (median, safe p95, PASS/FAIL).</li>
+<li>Q2: Largest input at safe 50 FPS.</li>
+</ul>
+<h3>Scenariusz B — sprawdzenie samej inferencji</h3>
+<pre><code class="lang-powershell">
+python scripts\01_benchmark_inference_only.py `
+    --engine engines\best__fp16_1088x1920_b4_static.engine `
+    --input-shape 1088 1920 --batch 4 --duration-s 30
+</code></pre>
+<p>Jeśli <code>inference_ms_p95 &gt; 20 ms</code> → Full HD inference <strong>nie</strong> spełni 50 FPS niezależnie od debayera. Dalsza walka nie ma sensu.</p>
+<h3>Scenariusz C — sprawdzenie, czy bottleneckiem jest color</h3>
+<pre><code class="lang-powershell">
+python scripts\02_benchmark_color_only.py `
+    --capture-shape 1080 1920 --output-shape 640 640 `
+    --batch 4 --duration-s 30
+</code></pre>
+<p>Jeśli <code>color_ms_p95</code> jest <strong>małe</strong> (np. &lt; 3 ms), bottleneck jest raczej w TensorRT. Jeśli <strong>duże</strong> — debayer/resize jest sprawcą.</p>
+<h3>Scenariusz D — pojedynczy eksperyment z JSON</h3>
+<pre><code class="lang-powershell">
+# 1. Edytuj configs\single_test.json (engine, capture, inference, batch, target_fps).
+# 2. Uruchom:
+python scripts\06_run_single_test.py --config configs\single_test.json
+</code></pre>
+<p>Sprawdź w outputie: <code>actual sustained FPS</code>, <code>overruns</code>, <code>target_hit</code>.</p>
+<hr/>
+<h2>15. Interpretacja końcowych wyników</h2>
+<table>
+<thead><tr><th>Wynik</th><th>Znaczenie</th></tr></thead>
+<tbody>
+<tr><td><code>packet_ms_p95 &lt;= 20</code></td><td>stabilne 50 FPS</td></tr>
+<tr><td><code>packet_ms_median &lt;= 20</code>, ale <code>p95 &gt; 20</code></td><td>średnio działa, ale <strong>niestabilnie</strong> — drops</td></tr>
+<tr><td><code>inference_ms_p95 &gt; 20</code></td><td><strong>sama</strong> inferencja za wolna</td></tr>
+<tr><td><code>color_ms_p95</code> duże</td><td>bottleneck w debayer / resize</td></tr>
+<tr><td><code>zero_copy_to_inference = false</code></td><td>wynik <strong>NIE</strong> odpowiada fast path (jest CPU bounce)</td></tr>
+<tr><td><code>fallback_used = true</code></td><td>test <strong>NIE</strong> działa na właściwym backendzie (native kernel padł)</td></tr>
+<tr><td><code>ENGINE_MISSING</code></td><td>brak engine dla danego input shape</td></tr>
+<tr><td><code>NATIVE_BACKEND_MISSING</code></td><td>brak custom CUDA debayera</td></tr>
+</tbody>
+</table>
+<hr/>
+<h2>16. Jak odpowiedzieć na pytania użytkownika na podstawie raportu</h2>
+<h3>Pytanie 1: Przy inferencji Full HD-like ile FPS można uzyskać?</h3>
+<ol>
+<li>Otwórz <code>reports\fastpath_lab_report.html</code>.</li>
+<li>W tabeli <strong>Resolution sweep</strong> znajdź wiersz <code>1088x1920</code>.</li>
+<li>Odczytaj:</li>
+</ol>
+<ul>
+<li><code>fps_per_camera_median</code>,</li>
+<li><code>fps_per_camera_safe_p95</code>.</li>
+</ul>
+<p><strong>Format odpowiedzi:</strong></p>
+<blockquote><p>Przy inferencji Full HD-like 1088×1920 ta maszyna osiąga około <strong>X FPS median</strong> oraz <strong>Y FPS safe p95</strong> per camera. (Stabilne 50 FPS: <strong>PASS/FAIL</strong>.)</p></blockquote>
+<h3>Pytanie 2: Jaki największy rozmiar inferencji spełnia stabilne 50 FPS?</h3>
+<ol>
+<li>W tabeli <strong>Resolution sweep</strong> znajdź <strong>największy wiersz</strong> (po</li>
+</ol>
+<p><code>pixels_mpx</code>), dla którego <code>pass_50fps_safe_p95 = PASS</code>.</p>
+<ol>
+<li>Odczytaj <code>label</code> tego wiersza.</li>
+</ol>
+<p><strong>Format odpowiedzi:</strong></p>
+<blockquote><p>Największy rozmiar inferencji spełniający stabilne 50 FPS (safe p95) na tej maszynie to <strong>X × Y</strong>, z marginesem <code>stability_margin_ms = Z ms</code>.</p></blockquote>
+<hr/>
+<h2>17. Ograniczenia benchmarku</h2>
+<p>Ten benchmark <strong>nie zastępuje</strong> testu produkcyjnego z kamerami.</p>
+<p>Jeśli benchmark pokazuje PASS:</p>
+<blockquote><p>&quot;GPU fast path <strong>ma potencjał</strong> osiągnąć 50 FPS dla danego input size na tej maszynie.&quot;</p></blockquote>
+<p>To NIE jest dowód, że cała aplikacja produkcyjna osiągnie 50 FPS. Aby to potwierdzić, trzeba później wykonać realny test z:</p>
+<ul>
+<li>kamerami Basler / pypylon (grabowanie),</li>
+<li>GUI,</li>
+<li>kolejkami / ring bufferem,</li>
+<li>synchronizacją sprzętową,</li>
+<li>shared memory,</li>
+<li>zapisem.</li>
+</ul>
+<p>Każdy z tych elementów dokłada swoje milisekundy.</p>
+<hr/>
+<h2>18. Troubleshooting</h2>
+<h3>Brak TensorRT</h3>
+<p><strong>Objaw:</strong> <code>TENSORRT_MISSING</code> lub <code>import tensorrt</code> rzuca błąd. <strong>Rozwiązanie:</strong> <code>pip install tensorrt==10.16.*</code> w wersji zgodnej z CUDA Toolkit. Może też trzeba <code>tensorrt-libs</code>, <code>tensorrt-bindings</code> na niektórych dystrybucjach.</p>
+<h3>Brak engine</h3>
+<p><strong>Objaw:</strong> <code>ENGINE_MISSING</code> w <code>00_check_env.py</code>. <strong>Rozwiązanie:</strong> Skopiować odpowiedni plik <code>.engine</code> do <code>engines/</code> (zgodnie z <code>engines/README_ENGINES.md</code>). Można też dostać je z maszyny, na której engine&#x27;y były eksportowane.</p>
+<h3>Engine incompatible</h3>
+<p><strong>Objaw:</strong> <code>TensorRT engine load failed</code> / <code>magicTag != kEXPECTED_MAGIC_TAG</code> (TRT 10+). <strong>Rozwiązanie:</strong> Engine został zbudowany inną wersją TRT lub na innej architekturze GPU. <strong>Przebuduj engine</strong> na tej maszynie (zgodnie z procedurą eksportu w głównym repo, poza paczką).</p>
+<h3>CUDA unavailable</h3>
+<p><strong>Objaw:</strong> <code>torch.cuda.is_available() = False</code>. <strong>Rozwiązanie:</strong> Sprawdzić:</p>
+<ol>
+<li>czy zainstalowany sterownik NVIDIA (<code>nvidia-smi</code>),</li>
+<li>czy <code>torch</code> jest w wersji <strong>CUDA build</strong> (nie CPU),</li>
+<li>czy CUDA Toolkit pasuje do wersji <code>torch</code> (cu121, cu124, itp.).</li>
+</ol>
+<h3>Native backend missing</h3>
+<p><strong>Objaw:</strong> <code>NATIVE_BACKEND_MISSING</code>. <strong>Rozwiązanie:</strong> Custom CUDA debayer wymaga:</p>
+<ol>
+<li>CUDA Toolkit (<code>nvcc</code>),</li>
+<li>hosta C++ kompatybilnego (na Windows: Visual C++ Build Tools).</li>
+</ol>
+<p>Jeśli to nie chodzi — paczka i tak działa, tylko zamiast natywnego kernela używa wolniejszego <code>torch_gpu_fallback</code>. Sprawdź w <code>results/environment.json</code> pole <code>native_cuda_debayer.error</code>.</p>
+<h3>Wynik FPS jest dziwnie niski</h3>
+<p>Sprawdź kolejno:</p>
+<ul>
+<li>czy <code>fallback_used = false</code> (jeśli <code>true</code> — naprawiamy native kernel),</li>
+<li>czy <code>zero_copy_to_inference = true</code> (jeśli <code>false</code> — CPU bounce),</li>
+<li>czy engine ma właściwy <code>batch</code> i <code>imgsz</code>,</li>
+<li>czy nie działa inny proces na GPU (<code>nvidia-smi</code>),</li>
+<li>czy laptop nie jest w trybie oszczędzania energii (Battery / Quiet),</li>
+<li>czy temperatura GPU nie powoduje throttlingu,</li>
+<li>czy <code>--warmup</code> nie jest za mały (dla 1088×1920 warto 10+).</li>
+</ul>
+<hr/>
+<h2>19. Minimalna checklista dla testera</h2>
+<pre><code>
+[ ] Rozpakowałem ZIP do C:\benchmark\fastpath_lab_benchmark\.
+[ ] Zainstalowałem zależności (torch CUDA + tensorrt + requirements.txt).
+[ ] Uruchomiłem CHECK_ENV.ps1.
+[ ] CUDA = OK.
+[ ] TensorRT = OK.
+[ ] Engine files = OK (cztery pliki .engine).
+[ ] Native CUDA backend = OK (lub fallback świadomie zaakceptowany).
+[ ] Uruchomiłem RUN_ALL.ps1 lub scripts\04_resolution_sweep.py.
+[ ] Uruchomiłem scripts\05_make_report.py.
+[ ] Otworzyłem reports\fastpath_lab_report.html.
+[ ] Odczytałem FPS dla 1088×1920.
+[ ] Odczytałem największy input dla stabilnych 50 FPS.
+[ ] Sprawdziłem, czy fallback_used = false.
+[ ] Sprawdziłem, czy zero_copy_to_inference = true.
+[ ] Zachowałem results/ i reports/ do dalszej analizy.
+</code></pre>
+<hr/>
+<h2>20. Finalny mini-przewodnik w 5 liniach</h2>
+<p>Jeśli chcesz <strong>tylko odpowiedź na dwa pytania</strong> i nic więcej:</p>
+<ol>
+<li>Uruchom <code>.\CHECK_ENV.ps1</code>.</li>
+<li>Uruchom <code>.\RUN_ALL.ps1</code>.</li>
+<li>Otwórz <code>reports\fastpath_lab_report.html</code>.</li>
+<li>Przejdź do sekcji <strong>Direct answers</strong>.</li>
+<li>Odczytaj:</li>
+</ol>
+<ul>
+<li>Full HD-like FPS (Q1),</li>
+<li>largest resolution for stable 50 FPS (Q2).</li>
+</ul>
+<p>Koniec.</p>
+</body></html>

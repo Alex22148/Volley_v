@@ -1,0 +1,7 @@
+ pip install pillow opencv-python zstandard cryptography
+
+ pip install pyinstaller
+
+Terminal:
+cd EXE
+pyinstaller --onefile --console --add-data "config.json;." converter_exporter_BIN_BWPZ.py

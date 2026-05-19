@@ -1,0 +1,38 @@
+# fastpath_lab_benchmark configuration.
+#
+# This file is consumed by RUN_ALL.ps1 and by the resolution sweep
+# script. You can change any value here without modifying Python code.
+#
+# Note: scripts can also be called directly with CLI args. This file
+# only provides the defaults RUN_ALL.ps1 uses.
+
+# Default duration of each sub-benchmark, in seconds.
+duration_s: 30
+
+# How many warmup iterations to discard before timing.
+warmup: 10
+
+# Synthetic Bayer capture size (used to mimic a 1080p sensor).
+capture_shape: [1080, 1920]
+
+# Bayer mosaic pattern of the synthetic source.
+bayer_pattern: "RG"
+
+# Per-resolution engine map. The label is the inference H x W.
+# If an engine file is missing under engines/, that row is skipped.
+resolutions:
+  - label: "640x640"
+    inference_shape: [640, 640]
+    engine_file: "best__fp16_640_b4_static.engine"
+  - label: "960x960"
+    inference_shape: [960, 960]
+    engine_file: "best__fp16_960_b4_static.engine"
+  - label: "1280x1280"
+    inference_shape: [1280, 1280]
+    engine_file: "best__fp16_1280_b4_static.engine"
+  - label: "1088x1920"
+    inference_shape: [1088, 1920]
+    engine_file: "best__fp16_1088x1920_b4_static.engine"
+
+# Verdict target. 50 FPS = 20 ms packet budget.
+target_fps: 50

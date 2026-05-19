@@ -1,0 +1,46 @@
+{
+  "baseline_name": "RTX 2080 Super (production-like)",
+  "notes": [
+    "Reference numbers measured on a development machine with RTX 2080 Super.",
+    "These come from the volleyhub_fastpath_benchmark package, which uses",
+    "Ultralytics (model.predict) for inference and runs NMS in the packet.",
+    "The lab benchmark in this folder is intentionally lighter (raw TRT, no",
+    "NMS, no Ultralytics) and will report LARGER FPS numbers than the",
+    "baseline. The baseline is included so the tester can see the gap and",
+    "reason about how much of it the rest of the production app eats."
+  ],
+  "results": [
+    {
+      "inference_input_shape": "640x640",
+      "packet_ms_median": 11.64,
+      "packet_ms_p95": 15.73,
+      "fps_per_camera_median": 85.9,
+      "fps_per_camera_safe_p95": 63.6,
+      "pass_50fps_safe_p95": true
+    },
+    {
+      "inference_input_shape": "960x960",
+      "packet_ms_median": 20.80,
+      "packet_ms_p95": 23.88,
+      "fps_per_camera_median": 48.1,
+      "fps_per_camera_safe_p95": 41.9,
+      "pass_50fps_safe_p95": false
+    },
+    {
+      "inference_input_shape": "1280x1280",
+      "packet_ms_median": 22.28,
+      "packet_ms_p95": 25.95,
+      "fps_per_camera_median": 44.9,
+      "fps_per_camera_safe_p95": 38.5,
+      "pass_50fps_safe_p95": false
+    },
+    {
+      "inference_input_shape": "1088x1920",
+      "packet_ms_median": 26.24,
+      "packet_ms_p95": 30.91,
+      "fps_per_camera_median": 38.1,
+      "fps_per_camera_safe_p95": 32.3,
+      "pass_50fps_safe_p95": false
+    }
+  ]
+}
