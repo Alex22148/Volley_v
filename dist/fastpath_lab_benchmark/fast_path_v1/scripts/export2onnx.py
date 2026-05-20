@@ -15,10 +15,10 @@ from ultralytics import YOLO
 # KONFIGURACJA
 # ============================================================
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
-PT_MODEL_PATH = REPO_ROOT / "best.pt"
-ONNX_OUTPUT_DIR = REPO_ROOT / "engines" / "onnx" / "static"
+PT_MODEL_PATH = REPO_ROOT / "model_base" / "best.pt"
+ONNX_OUTPUT_DIR = REPO_ROOT / "engines" /  "engines" / "onnx" / "static"
 
 DEVICE = 0
 SKIP_IF_EXISTS = True
@@ -29,9 +29,10 @@ MIN_ONNX_BYTES = 1024
 USE_FP16_NAMING = True
 
 INPUT_MATRIX: dict[str, list[list[int]]] = {
-    "v640": [[640, 640], [4, 8, 12]],
-    "v960": [[960, 960], [4, 8, 12]],
-    "v1088x1920": [[1088, 1920], [1, 4, 8]],
+    "v640": [[640, 640], [4, 8, 12,16,20,24,28]],
+    "v960": [[960, 960], [4, 8, 12,16,20,24,28]],
+    "v1088x1920": [[1088, 1920], [4, 8, 12,16,20,24,28]],
+
 }
 
 
@@ -252,8 +253,8 @@ def export_one_variant(
 
 
 def main() -> None:
-    pt_path = PT_MODEL_PATH.expanduser().resolve()
-    output_dir = ONNX_OUTPUT_DIR.expanduser().resolve()
+    pt_path = Path(r"C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\dist\fastpath_lab_benchmark\fast_path_v1\model_base\best.pt")
+    output_dir = Path(r"C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\dist\fastpath_lab_benchmark\fast_path_v1\engines\onnx")
 
     if not pt_path.exists():
         raise FileNotFoundError(f"Missing .pt model: {pt_path}")

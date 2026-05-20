@@ -3,10 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from ultralytics import YOLO
 from dataclasses import dataclass, asdict
+import contextlib
 import traceback
 import shutil
 import json
 import time
+import sys
 from typing import Any
 
 
@@ -14,8 +16,9 @@ from typing import Any
 # KONFIGURACJA — TU ZMIENIASZ ŚCIEŻKI
 # ============================================================
 
-REPO_ROOT = Path(__file__).resolve().parents[1] ## MP Path(__file__).resolve().parents[1]
-PT_MODEL_PATH = REPO_ROOT / "model_base/best.pt"
+REPO_ROOT = Path(r"C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\dist\fastpath_lab_benchmark\fast_path_v1")
+print(REPO_ROOT)
+PT_MODEL_PATH = REPO_ROOT / "model_base" / "best.pt"
 ENGINE_OUTPUT_DIR = REPO_ROOT / "engines" / "static"
 ONNX_OUTPUT_DIR = ENGINE_OUTPUT_DIR.parent / "onnx" / "static"
 
@@ -25,6 +28,8 @@ USE_FP16 = True
 SKIP_IF_EXISTS = True
 WORKSPACE_GB = 2
 MIN_ENGINE_BYTES = 1024
+TENSORRT_VERBOSE = True
+BUILD_LOG_DIR = REPO_ROOT / "engines" / "logs"
 
 
 # ============================================================
@@ -108,6 +113,49 @@ def validate_engine_file(path: Path) -> None:
     size = path.stat().st_size
     if size < MIN_ENGINE_BYTES:
         raise ValueError(f"Engine file too small or invalid: {path} | size={size} bytes")
+
+
+class Tee:
+    def __init__(self, *streams: Any) -> None:
+        self.streams = streams
+
+    def write(self, data: str) -> int:
+        for stream in self.streams:
+            stream.write(data)
+            stream.flush()
+        return len(data)
+
+    def flush(self) -> None:
+        for stream in self.streams:
+            stream.flush()
+
+
+def export_with_log(model: YOLO, kwargs: dict[str, Any], log_path: Path) -> Any:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with log_path.open("w", encoding="utf-8", errors="replace") as log_file:
+        log_file.write(f"export_kwargs={json.dumps(kwargs, ensure_ascii=False, default=str)}\n\n")
+        log_file.flush()
+
+        with contextlib.redirect_stdout(Tee(sys.stdout, log_file)):
+            with contextlib.redirect_stderr(Tee(sys.stderr, log_file)):
+                return model.export(**kwargs)
+
+
+def add_tensorrt_hint(error_msg: str, config: dict[str, Any], log_path: Path) -> str:
+    if "TensorRT engine build failed" not in error_msg:
+        return error_msg
+
+    imgsz = config.get("imgsz")
+    batch = config.get("batch")
+    workspace = config.get("workspace")
+    hint = (
+        "TensorRT builder returned None. For this benchmark the most common cause is too little free VRAM "
+        "or too small TensorRT workspace for a large static batch/resolution. Close GPU-heavy apps, try a "
+        "smaller batch, or increase WORKSPACE_GB. Full TensorRT log: "
+        f"{log_path} | imgsz={imgsz} batch={batch} workspace_gb={workspace}"
+    )
+    return f"{error_msg} | {hint}"
 
 
 def normalize_imgsz(value: Any) -> int | list[int]:
@@ -239,6 +287,7 @@ def export_one_variant(
 
     target_engine = output_dir / f"{stem}__{cfg_name}.engine"
     target_onnx = onnx_output_dir / f"{stem}__{cfg_name}.onnx"
+    log_path = BUILD_LOG_DIR / f"{stem}__{cfg_name}.log"
 
     if skip_if_exists and target_engine.exists():
         try:
@@ -287,6 +336,7 @@ def export_one_variant(
         print(f"[EXPORT STATIC] dynamic : {dynamic}")
         print(f"[EXPORT STATIC] device  : {device}")
         print(f"[EXPORT STATIC] output  : {target_engine}")
+        print(f"[EXPORT STATIC] log     : {log_path}")
 
         if save_onnx and not (skip_if_exists and target_onnx.exists()):
             onnx_kwargs = dict(
@@ -300,7 +350,7 @@ def export_one_variant(
             )
 
             print("[EXPORT STATIC] Exporting ONNX...")
-            model.export(**onnx_kwargs)
+            export_with_log(model, onnx_kwargs, log_path)
 
             exported_onnx_path = resolve_exported_onnx_path(pt_path)
             safe_copy(exported_onnx_path, target_onnx)
@@ -326,7 +376,7 @@ def export_one_variant(
             half=half,
             dynamic=dynamic,
             simplify=simplify,
-            verbose=False,
+            verbose=TENSORRT_VERBOSE,
             int8=False,
         )
 
@@ -334,7 +384,7 @@ def export_one_variant(
             engine_kwargs["workspace"] = workspace
 
         print("[EXPORT STATIC] Exporting TensorRT STATIC engine...")
-        exported_value = model.export(**engine_kwargs)
+        exported_value = export_with_log(model, engine_kwargs, log_path)
 
         exported_engine_path = resolve_exported_engine_path(pt_path, exported_value)
 
@@ -352,6 +402,7 @@ def export_one_variant(
 
     except Exception as exc:
         error_msg = f"{type(exc).__name__}: {exc}"
+        error_msg = add_tensorrt_hint(error_msg, config, log_path)
 
         print(f"[EXPORT STATIC] ERROR: {error_msg}")
         print(traceback.format_exc())
@@ -381,9 +432,10 @@ def export_one_variant(
 
 
 def main() -> None:
-    pt_path = Path(r"C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\model_base\best.pt")
-    output_dir = ENGINE_OUTPUT_DIR.expanduser().resolve()
-    onnx_output_dir = ONNX_OUTPUT_DIR.expanduser().resolve()
+    pt_path = PT_MODEL_PATH
+
+    output_dir = Path(r"C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\dist\fastpath_lab_benchmark\fast_path_v1\engines\static")
+    onnx_output_dir = Path(r"C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\dist\fastpath_lab_benchmark\fast_path_v1\engines\onnx")
 
     if not pt_path.exists():
         raise FileNotFoundError(f"Missing .pt model: {pt_path}")
@@ -396,6 +448,7 @@ def main() -> None:
 
     output_dir.mkdir(parents=True, exist_ok=True)
     onnx_output_dir.mkdir(parents=True, exist_ok=True)
+    BUILD_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     device = int(DEVICE)
 
@@ -410,6 +463,7 @@ def main() -> None:
     print(f"[EXPORT] source PT      : {pt_path}")
     print(f"[EXPORT] output dir     : {output_dir}")
     print(f"[EXPORT] onnx dir       : {onnx_output_dir}")
+    print(f"[EXPORT] log dir        : {BUILD_LOG_DIR}")
     print(f"[EXPORT] precision      : {'fp16' if USE_FP16 else 'fp32'}")
     print(f"[EXPORT] device         : {device}")
     print(f"[EXPORT] skip existing  : {SKIP_IF_EXISTS}")

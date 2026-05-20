@@ -28,13 +28,17 @@ TARGET_PACKET_MS = 1000.0 / TARGET_FPS
 
 
 def _resolve_test_results_dir(reports_root: Path) -> Path:
+    import os
     candidates = sorted(
         [p for p in reports_root.glob("test_???") if p.is_dir() and p.name[5:].isdigit()],
         key=lambda p: int(p.name[5:]),
     )
     if candidates:
         return candidates[-1]
-    return reports_root / "test_001"
+    n = len(os.listdir(reports_root))
+    filename = f"{n:03d}"
+
+    return reports_root / filename
 
 
 def _f(v: Any, p: int = 2) -> str:
@@ -126,6 +130,17 @@ def _metric_norm(row: dict[str, Any], metric: str) -> float | None:
     if metric == "nms_overhead_ms":
         return _nms_overhead_norm_p95(row)
 
+    if metric == "color_batch_inference_ms":
+        val = _get_norm_p95(row, "color_batch_inference_ms")
+        if val is not None:
+            return val
+        batch_build = _get_norm_p95(row, "batch_build_ms") or 0.0
+        color = _get_norm_p95(row, "color_debayer_ms", "color_ms") or 0.0
+        inf = _get_norm_p95(row, "inference_ms") or 0.0
+        if batch_build or color or inf:
+            return batch_build + color + inf
+        return _get_norm_p95(row, "color_plus_inference_ms")
+
     return _get_norm_p95(row, metric)
 
 
@@ -148,6 +163,17 @@ def _metric_stage(row: dict[str, Any], metric: str) -> float | None:
         if with_nms is not None and no_nms is not None:
             return with_nms - no_nms
         return None
+
+    if metric == "color_batch_inference_ms":
+        val = _get_stage_p95(row, "color_batch_inference_ms")
+        if val is not None:
+            return val
+        batch_build = _get_stage_p95(row, "batch_build_ms") or 0.0
+        color = _get_stage_p95(row, "color_debayer_ms", "color_ms") or 0.0
+        inf = _get_stage_p95(row, "inference_ms") or 0.0
+        if batch_build or color or inf:
+            return batch_build + color + inf
+        return _get_stage_p95(row, "color_plus_inference_ms")
 
     return _get_stage_p95(row, metric)
 
@@ -186,7 +212,7 @@ def _packet_with_nms_norm_p95(row: dict[str, Any]) -> float | None:
 
 
 def _packet_no_nms_norm_p95(row: dict[str, Any]) -> float | None:
-    return _get_norm_p95(row, "packet_no_nms_ms", "czas_paczki_bez_nms_ms", "packet_ms")
+    return _get_norm_p95(row, "packet_without_nms_ms", "packet_no_nms_ms", "czas_paczki_bez_nms_ms", "packet_ms")
 
 
 def _nms_overhead_norm_p95(row: dict[str, Any]) -> float | None:
@@ -194,7 +220,7 @@ def _nms_overhead_norm_p95(row: dict[str, Any]) -> float | None:
     if val is not None:
         return val
     with_nms = _get_norm_p95(row, "packet_with_nms_ms", "czas_paczki_z_nms_ms")
-    no_nms = _get_norm_p95(row, "packet_no_nms_ms", "czas_paczki_bez_nms_ms")
+    no_nms = _get_norm_p95(row, "packet_without_nms_ms", "packet_no_nms_ms", "czas_paczki_bez_nms_ms")
     if with_nms is not None and no_nms is not None:
         return with_nms - no_nms
     return None
@@ -215,10 +241,10 @@ def _best_global_for_explanatory_report(rows_ok: list[dict[str, Any]]) -> dict[s
 
 def _bottleneck(row: dict[str, Any], normalized: bool = False) -> str:
     if normalized:
-        color = _get_norm_p95(row, "color_ms") or 0.0
+        color = _get_norm_p95(row, "color_debayer_ms", "color_ms") or 0.0
         inf = _get_norm_p95(row, "inference_ms") or 0.0
     else:
-        color = _get_stage_p95(row, "color_ms") or 0.0
+        color = _get_stage_p95(row, "color_debayer_ms", "color_ms") or 0.0
         inf = _get_stage_p95(row, "inference_ms") or 0.0
     return "inference" if inf >= color else "color"
 
@@ -302,16 +328,19 @@ def build_charts(payload: dict[str, Any], rows: list[dict[str, Any]], reports_di
     # 02 breakdown norm b4
     # ------------------------------------------------------------
     labels = [_chart_label(r) for r in rows_ok]
-    color_vals = [_safe_float(_metric_norm(r, "color_ms")) for r in rows_ok]
+    batch_vals = [_safe_float(_metric_norm(r, "batch_build_ms")) for r in rows_ok]
+    color_vals = [_safe_float(_metric_norm(r, "color_debayer_ms")) for r in rows_ok]
     inf_vals = [_safe_float(_metric_norm(r, "inference_ms")) for r in rows_ok]
     nms_vals = [_safe_float(_metric_norm(r, "postprocess_nms_ms")) for r in rows_ok]
 
     x = np.arange(len(labels))
 
     fig, ax = plt.subplots(figsize=(max(10, len(labels) * 0.55), 6))
-    ax.bar(x, color_vals, label="color/debayer")
-    ax.bar(x, inf_vals, bottom=color_vals, label="inference")
-    bottom2 = np.asarray(color_vals) + np.asarray(inf_vals)
+    ax.bar(x, batch_vals, label="batch build")
+    ax.bar(x, color_vals, bottom=batch_vals, label="color/debayer")
+    bottom1 = np.asarray(batch_vals) + np.asarray(color_vals)
+    ax.bar(x, inf_vals, bottom=bottom1, label="inference")
+    bottom2 = bottom1 + np.asarray(inf_vals)
     ax.bar(x, nms_vals, bottom=bottom2, label="postprocess/NMS")
 
     ax.axhline(TARGET_PACKET_MS, linestyle=":", linewidth=1.5, label="20 ms")
@@ -406,7 +435,7 @@ def build_charts(payload: dict[str, Any], rows: list[dict[str, Any]], reports_di
     # 06 bottleneck share
     # ------------------------------------------------------------
     labels = [_chart_label(r) for r in rows_ok]
-    color_vals = np.asarray([_safe_float(_metric_norm(r, "color_ms")) for r in rows_ok])
+    color_vals = np.asarray([_safe_float(_metric_norm(r, "color_debayer_ms")) for r in rows_ok])
     inf_vals = np.asarray([_safe_float(_metric_norm(r, "inference_ms")) for r in rows_ok])
     nms_vals = np.asarray([_safe_float(_metric_norm(r, "postprocess_nms_ms")) for r in rows_ok])
 
@@ -486,6 +515,28 @@ def build_charts(payload: dict[str, Any], rows: list[dict[str, Any]], reports_di
     fig.savefig(charts_dir / "chart_08_heatmap_packet_with_nms_norm.png", dpi=160)
     plt.close(fig)
 
+    # ------------------------------------------------------------
+    # 09 batch + color/debayer + inference norm
+    # ------------------------------------------------------------
+    fig, ax = plt.subplots(figsize=(10, 5))
+    for res, items in grouped.items():
+        batches_res = [int(r["batch"]) for r in items]
+        total_fastpath = [
+            _safe_float(_metric_norm(r, "color_batch_inference_ms"), np.nan)
+            for r in items
+        ]
+        ax.plot(batches_res, total_fastpath, marker="o", label=res)
+
+    ax.axhline(TARGET_PACKET_MS, linestyle=":", linewidth=1.5, label="20 ms")
+    ax.set_title("Batch build + color/debayer + inference p95 norm paczka4")
+    ax.set_xlabel("Batch")
+    ax.set_ylabel("ms / paczka 4-kamerowa")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(charts_dir / "chart_09_color_batch_inference_norm.png", dpi=160)
+    plt.close(fig)
+
     return charts_dir
 
 
@@ -539,16 +590,19 @@ def build_md(payload: dict[str, Any], rows: list[dict[str, Any]]) -> str:
 
     a("## Full Table")
     a("")
-    a("| Res | Batch | Color p95 | Inf p95 | Packet p95 | Color p95 norm | Inf p95 norm | Packet p95 norm | FPS p95 norm |")
-    a("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    a("| Res | Batch | Batch build p95 | Color/debayer p95 | Inf p95 | Batch+color+inf p95 | Packet p95 | Batch+color+inf p95 norm | Packet p95 norm | FPS p95 norm |")
+    a("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in sorted(rows_ok, key=lambda x: (int(x["input_shape_hw"][0]) * int(x["input_shape_hw"][1]), int(x["batch"]))):
         p95n = _packet_with_nms_norm_p95(r)
         fpsn = (1000.0 / p95n) if (p95n is not None and p95n > 0) else None
         a(
             f"| {_shape(r['input_shape_hw'])} | {r['batch']} | "
-            f"{_existing_or_dash(_get_stage_p95(r, 'color_ms'))} | {_existing_or_dash(_get_stage_p95(r, 'inference_ms'))} | "
+            f"{_existing_or_dash(_get_stage_p95(r, 'batch_build_ms'))} | "
+            f"{_existing_or_dash(_get_stage_p95(r, 'color_debayer_ms', 'color_ms'))} | "
+            f"{_existing_or_dash(_get_stage_p95(r, 'inference_ms'))} | "
+            f"{_existing_or_dash(_get_stage_p95(r, 'color_batch_inference_ms'))} | "
             f"{_existing_or_dash(_get_stage_p95(r, 'packet_with_nms_ms', 'czas_paczki_z_nms_ms', 'packet_ms'))} | "
-            f"{_existing_or_dash(_get_norm_p95(r, 'color_ms'))} | {_existing_or_dash(_get_norm_p95(r, 'inference_ms'))} | "
+            f"{_existing_or_dash(_get_norm_p95(r, 'color_batch_inference_ms'))} | "
             f"{_existing_or_dash(p95n)} | {_existing_or_dash(fpsn, 1)} |"
         )
     a("")
@@ -574,9 +628,13 @@ def write_csv(rows: list[dict[str, Any]], path: Path) -> None:
         w.writerow([
             "resolution",
             "batch",
+            "batch_build_p95_ms",
+            "color_debayer_p95_ms",
             "color_p95_ms",
             "inference_p95_ms",
+            "color_batch_inference_p95_ms",
             "packet_p95_ms",
+            "color_batch_inference_p95_ms_norm",
             "color_p95_ms_norm",
             "inference_p95_ms_norm",
             "packet_p95_ms_norm",
@@ -590,9 +648,13 @@ def write_csv(rows: list[dict[str, Any]], path: Path) -> None:
             w.writerow([
                 _shape(r["input_shape_hw"]),
                 r["batch"],
+                _get_stage_p95(r, "batch_build_ms"),
+                _get_stage_p95(r, "color_debayer_ms", "color_ms"),
                 _get_stage_p95(r, "color_ms"),
                 _get_stage_p95(r, "inference_ms"),
+                _get_stage_p95(r, "color_batch_inference_ms"),
                 _get_stage_p95(r, "packet_with_nms_ms", "czas_paczki_z_nms_ms", "packet_ms"),
+                _get_norm_p95(r, "color_batch_inference_ms"),
                 _get_norm_p95(r, "color_ms"),
                 _get_norm_p95(r, "inference_ms"),
                 p95n,
@@ -624,9 +686,13 @@ def build_metric_dictionary_json(payload: dict[str, Any], reports_dir: Path) -> 
             "mediana": "Percentyl 50; środkowa wartość rozkładu.",
         },
         "definicje_metryk": {
-            "color_ms": "Sam etap przygotowania obrazu: RAW Bayer -> color/debayer/normalizacja.",
+            "batch_build_ms": "Składanie/pobranie paczki RAW Bayer przed wejściem na GPU. W tym benchmarku to SyntheticRawSource.next_batch().",
+            "color_debayer_ms": "GPU etap RAW Bayer -> RGB BCHW tensor: debayer, color conversion, normalizacja i układ tensorowy.",
+            "color_ms": "Alias kompatybilności dla color_debayer_ms.",
             "inference_ms": "Sam czas inferencji TensorRT.",
-            "color_plus_inference_ms": "Czas color + inference, czyli szybki tor bez NMS.",
+            "color_debayer_plus_inference_ms": "Suma color_debayer_ms + inference_ms.",
+            "color_batch_inference_ms": "Suma batch_build_ms + color_debayer_ms + inference_ms. To jest najczytelniejsza kolumna do porównania pełnego toru bez NMS.",
+            "color_plus_inference_ms": "Alias kompatybilności dla color_debayer_plus_inference_ms.",
             "postprocess_nms_ms": "Czas postprocessingu i NMS. Jeśli NMS jest dummy, wartość może być bliska zeru.",
             "packet_without_nms_ms": "Pełny czas paczki bez NMS, do końca inferencji.",
             "packet_with_nms_ms": "Pełny czas paczki z NMS, najbliższy realnej detekcji.",
@@ -692,9 +758,13 @@ def build_explanatory_md(payload: dict[str, Any], rows: list[dict[str, Any]]) ->
     a("")
     a("| Metryka | Znaczenie | Jak interpretować |")
     a("|---|---|---|")
-    a("| `color_ms` | Samo przygotowanie obrazu / debayer / normalizacja | Wysoko = preprocessing jest bottleneckiem |")
+    a("| `batch_build_ms` | Składanie/pobranie paczki RAW Bayer | Wysoko = problem przed GPU albo z przygotowaniem batcha |")
+    a("| `color_debayer_ms` | RAW Bayer -> RGB tensor na GPU | Wysoko = color/debayer jest bottleneckiem |")
+    a("| `color_ms` | Alias kompatybilności dla `color_debayer_ms` | Starsze raporty mogą używać tej nazwy |")
     a("| `inference_ms` | Sama inferencja TensorRT | Wysoko = model albo engine jest bottleneckiem |")
-    a("| `color_plus_inference_ms` | Color + inference | Szybki tor bez NMS |")
+    a("| `color_debayer_plus_inference_ms` | Color/debayer + inference | GPU tor bez składania batcha i bez NMS |")
+    a("| `color_batch_inference_ms` | Batch build + color/debayer + inference | Główna suma do porównania pełnego toru bez NMS |")
+    a("| `color_plus_inference_ms` | Alias kompatybilności dla `color_debayer_plus_inference_ms` | Starsze raporty mogą używać tej nazwy |")
     a("| `postprocess_nms_ms` | Postprocess i NMS | Wysoko = problem po stronie dekodowania/NMS |")
     a("| `packet_without_nms_ms` | Cały packet bez NMS | Czas do końca inferencji |")
     a("| `packet_with_nms_ms` | Cały packet z NMS | Najbliżej realnej detekcji |")
@@ -757,6 +827,8 @@ def build_explanatory_md(payload: dict[str, Any], rows: list[dict[str, Any]]) ->
     a("")
     a("![Heatmapa packet z NMS](final_benchmark_08_charts/chart_08_heatmap_packet_with_nms_norm.png)")
     a("")
+    a("![Batch + color/debayer + inference](final_benchmark_08_charts/chart_09_color_batch_inference_norm.png)")
+    a("")
 
     a("## 9. Najlepszy wariant globalny")
     a("")
@@ -777,17 +849,39 @@ def build_explanatory_md(payload: dict[str, Any], rows: list[dict[str, Any]]) ->
         a(f"- interpretacja NMS: **{_interpret_nms_overhead(overhead)}**")
     a("")
 
-    a("## 8. Tabela wyników — czasy rzeczywiste dla całego batcha")
+    a("## 8. Batch + color/debayer + inference")
+    a("")
+    a("Ta tabela pokazuje metrykę do porównania szybkiego toru bez NMS: składanie batcha + debayer/color + sama inferencja.")
+    a("")
+    a("| Rozdzielczość | Batch | Paczek 4-kam. | Batch build p95 | Color/debayer p95 | Inferencja p95 | Batch+color+infer p95 | Batch+color+infer p95 norm |")
+    a("|---|---:|---:|---:|---:|---:|---:|---:|")
+    for r in sorted(rows_ok, key=lambda x: (int(x["input_shape_hw"][0]) * int(x["input_shape_hw"][1]), int(x["batch"]))):
+        batch = int(r["batch"])
+        eq = batch / 4.0
+        batch_build = _get_stage_p95(r, "batch_build_ms")
+        color = _get_stage_p95(r, "color_debayer_ms", "color_ms")
+        inf = _get_stage_p95(r, "inference_ms")
+        batch_color_infer = _get_stage_p95(r, "color_batch_inference_ms")
+        batch_color_infer_n = _metric_norm(r, "color_batch_inference_ms")
+        a(
+            f"| {_shape(r['input_shape_hw'])} | {batch} | {_existing_or_dash(eq, 3)} | "
+            f"{_existing_or_dash(batch_build, 3)} | {_existing_or_dash(color, 3)} | "
+            f"{_existing_or_dash(inf, 3)} | {_existing_or_dash(batch_color_infer, 3)} | "
+            f"{_existing_or_dash(batch_color_infer_n, 3)} |"
+        )
+    a("")
+
+    a("## 9. Tabela wyników — czasy rzeczywiste dla całego batcha")
     a("")
     a("| Rozdzielczość | Batch | Paczek 4-kam. | Kolor p95 | Inferencja p95 | NMS/postprocess p95 | Paczka bez NMS p95 | Paczka z NMS p95 | Narzut NMS p95 |")
     a("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in sorted(rows_ok, key=lambda x: (int(x["input_shape_hw"][0]) * int(x["input_shape_hw"][1]), int(x["batch"]))):
         batch = int(r["batch"])
         eq = batch / 4.0
-        color = _get_stage_p95(r, "color_ms")
+        color = _get_stage_p95(r, "color_debayer_ms", "color_ms")
         inf = _get_stage_p95(r, "inference_ms")
-        post = _get_stage_p95(r, "postprocess_ms", "czas_postprocessingu_nms_ms")
-        no_nms = _get_stage_p95(r, "packet_no_nms_ms", "czas_paczki_bez_nms_ms")
+        post = _get_stage_p95(r, "postprocess_nms_ms", "postprocess_ms", "czas_postprocessingu_nms_ms")
+        no_nms = _get_stage_p95(r, "packet_without_nms_ms", "packet_no_nms_ms", "czas_paczki_bez_nms_ms")
         with_nms = _get_stage_p95(r, "packet_with_nms_ms", "czas_paczki_z_nms_ms", "packet_ms")
         overhead = _get_stage_p95(r, "nms_overhead_ms", "narzut_nms_ms")
         if overhead is None and no_nms is not None and with_nms is not None:
@@ -799,19 +893,21 @@ def build_explanatory_md(payload: dict[str, Any], rows: list[dict[str, Any]]) ->
         )
     a("")
 
-    a("## 9. Tabela wyników — przeliczenie do paczki 4-kamerowej")
+    a("## 10. Tabela wyników — przeliczenie do paczki 4-kamerowej")
     a("")
-    a("| Rozdzielczość | Batch | Paczek 4-kam. | Paczka bez NMS p95 norm | Paczka z NMS p95 norm | Narzut NMS p95 norm | Interpretacja |")
-    a("|---|---:|---:|---:|---:|---:|---|")
+    a("| Rozdzielczość | Batch | Paczek 4-kam. | Batch+color+infer p95 norm | Paczka bez NMS p95 norm | Paczka z NMS p95 norm | Narzut NMS p95 norm | Interpretacja |")
+    a("|---|---:|---:|---:|---:|---:|---:|---|")
     for r in sorted(rows_ok, key=lambda x: (int(x["input_shape_hw"][0]) * int(x["input_shape_hw"][1]), int(x["batch"]))):
         batch = int(r["batch"])
         eq = batch / 4.0
         no_nms_n = _packet_no_nms_norm_p95(r)
         with_nms_n = _packet_with_nms_norm_p95(r)
         overhead_n = _nms_overhead_norm_p95(r)
+        batch_color_infer_n = _metric_norm(r, "color_batch_inference_ms")
         interp = _interpret_budget(with_nms_n)
         a(
             f"| {_shape(r['input_shape_hw'])} | {batch} | {_existing_or_dash(eq, 3)} | "
+            f"{_existing_or_dash(batch_color_infer_n, 3)} | "
             f"{_existing_or_dash(no_nms_n, 3)} | {_existing_or_dash(with_nms_n, 3)} | "
             f"{_existing_or_dash(overhead_n, 3)} | {interp} |"
         )

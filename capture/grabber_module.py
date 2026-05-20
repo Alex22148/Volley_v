@@ -11,14 +11,14 @@ from pypylon import pylon
 from storage.shared_memory_manager import get_shared_memory_manager
 from streaming.server_stream import get_selected_role
 
-# đźŽ¬ BUFOR - Import VisionRingBuffer
+# 🎬 BUFOR - Import VisionRingBuffer
 try:
     from vision.vision_ring_buffer_v3_nonblocking import VisionRingBuffer
     BUFFER_AVAILABLE = True
-    print("[BUFFER] ... VisionRingBuffer dostÄ™pny")
+    print("[BUFFER] ... VisionRingBuffer dostępny")
 except ImportError as e:
     BUFFER_AVAILABLE = False
-    print(f"[BUFFER] âš ď¸Ź VisionRingBuffer niedostÄ™pny: {e}")
+    print(f"[BUFFER] ⚠️ VisionRingBuffer niedostępny: {e}")
     VisionRingBuffer = None
 
 # Globalny bufor dla wszystkich kamer (jak w demo)
@@ -47,7 +47,7 @@ def grabber(cam_idx, cam, role, serial,
             *args, **kwargs):
     """
     Back-compat: akceptuj dodatkowe kwargs (np. shared_state),
-    ĹĽeby nie wysypywaÄ‡ się gdy wywoĹ‚ujÄ…cy przekaĹĽe nowe pola.
+    żeby nie wysypywać się gdy wywołujący przekaże nowe pola.
     """
     import time
     import queue
@@ -59,7 +59,7 @@ def grabber(cam_idx, cam, role, serial,
 
     shared_state = kwargs.get("shared_state", None)
 
-    # mapa ostatnich timestampĂłw ramek per rola (do watchdoga)
+    # mapa ostatnich timestampów ramek per rola (do watchdoga)
     last_ts_map = None
     try:
         if shared_state is not None:
@@ -84,7 +84,7 @@ def grabber(cam_idx, cam, role, serial,
     except Exception:
         bayer_map = None
 
-    # upewnij się, ĹĽe mamy Event dla tej roli
+    # upewnij się, że mamy Event dla tej roli
     if role not in streaming_enabled:
         streaming_enabled[role] = threading.Event()
 
@@ -110,7 +110,7 @@ def grabber(cam_idx, cam, role, serial,
                 _TS_LOG_FH = open(_TS_LOG_PATH, "a", encoding="utf-8", buffering=1)
                 print(f"[TS_LOG] shared -> {_TS_LOG_PATH}")
     except Exception as e:
-        print(f"[TS_LOG] âš ď¸Ź shared open failed: {e}")
+        print(f"[TS_LOG] ⚠️ shared open failed: {e}")
         _TS_LOG_FH = None
 
     # bandwidth (PC-side)
@@ -142,7 +142,7 @@ def grabber(cam_idx, cam, role, serial,
             if not gr or not gr.GrabSucceeded():
                 continue
 
-            # --- bandwidth (PC-side): ile realnie odebraliĹ›my ---
+            # --- bandwidth (PC-side): ile realnie odebraliśmy ---
             try:
                 payload = int(gr.GetPayloadSize())
             except Exception:
@@ -217,7 +217,7 @@ def grabber(cam_idx, cam, role, serial,
                         _TS_LOG_FH.write(line)
                 except Exception as e:
                     if frame_idx_local % 200 == 0:
-                        print(f"[TS_LOG] âš ď¸Ź write failed for {role}: {e}")
+                        print(f"[TS_LOG] ⚠️ write failed for {role}: {e}")
 
             try:
                 if not arr.flags.c_contiguous:
@@ -312,7 +312,7 @@ def grabber(cam_idx, cam, role, serial,
 
                 except Exception as e:
                     if frame_idx_local % 200 == 0:
-                        print(f"[BUFFER] âš ď¸Ź Błąd bufora {role}: {e}")
+                        print(f"[BUFFER] ⚠️ Błąd bufora {role}: {e}")
 
             # =========================================================
             # 2) Surowy tor sync / zapis
@@ -423,7 +423,7 @@ def grabber(cam_idx, cam, role, serial,
 
             remote_active = bool(remote_stream_enabled.is_set() and selected_role == role)
 
-            # YOLO ma wĹ‚asny tor przez yolo_raw_q -> nie dublujemy go tu
+            # YOLO ma własny tor przez yolo_raw_q -> nie dublujemy go tu
             universal_active = (preview_active or remote_active)
 
             send_for_preview_remote = False
@@ -491,7 +491,7 @@ def preview_worker(preview_q_rgb, streaming_enabled, stop_evt, live_q):
     target_fps = 15
 
     if not isinstance(preview_q_rgb, dict):
-        print("[PREVIEW] âťŚ preview_q_rgb powinno byÄ‡ sĹ‚ownikiem {role: Queue}")
+        print("[PREVIEW] ❌ preview_q_rgb powinno być słownikiem {role: Queue}")
         return
 
     while not stop_evt.is_set():
@@ -500,7 +500,7 @@ def preview_worker(preview_q_rgb, streaming_enabled, stop_evt, live_q):
                 if not streaming_enabled[role].is_set():
                     continue
             except Exception as e:
-                print(f"[PREVIEW][{role}] âš ď¸Ź streaming_enabled access error: {e}")
+                print(f"[PREVIEW][{role}] ⚠️ streaming_enabled access error: {e}")
                 continue
 
             latest = None
@@ -515,7 +515,7 @@ def preview_worker(preview_q_rgb, streaming_enabled, stop_evt, live_q):
 
             role2, ts_ns, frame_rgb = latest
             if role2 != role:
-                print(f"[PREVIEW][{role}] âš ď¸Ź role mismatch: {role2} vs {role}")
+                print(f"[PREVIEW][{role}] ⚠️ role mismatch: {role2} vs {role}")
                 continue
 
             now = time.time()
@@ -532,11 +532,11 @@ def preview_worker(preview_q_rgb, streaming_enabled, stop_evt, live_q):
                 time.sleep(0.002)
 
             except queue.Full:
-                print(f"[PREVIEW][{role}] âš ď¸Ź live_q full - skipping frame")
+                print(f"[PREVIEW][{role}] ⚠️ live_q full - skipping frame")
 
-        time.sleep(0.005)  # niewielka pauza, ĹĽeby nie zajeĹĽdĹĽaÄ‡ CPU
+        time.sleep(0.005)  # niewielka pauza, żeby nie zajeżdżać CPU
 
-    print("[PREVIEW] âŹą Worker exiting cleanly.")
+    print("[PREVIEW] ⏹ Worker exiting cleanly.")
 
 def async_sync_worker(file_ref, stop_evt):
     while not stop_evt.is_set():
@@ -550,7 +550,7 @@ def async_sync_worker(file_ref, stop_evt):
 
 def saver_worker_bin(role, in_q, root_dir, batch_frames, roll_every,
                      recording_event, stop_evt, stats_q=None, expected_fps=50.0,
-                     resume_dir=None):  # đź†• dodany argument resume_dir
+                     resume_dir=None):  # 🆕 dodany argument resume_dir
 
     import os, time, numpy as np, queue
     from pathlib import Path
@@ -584,9 +584,9 @@ def saver_worker_bin(role, in_q, root_dir, batch_frames, roll_every,
         return root_dir() if callable(root_dir) else root_dir
 
     def resolve_session_dir() -> Path:
-        """đź§  Jeśli resume_dir istnieje â€“ kontynuuj w nim."""
+        """🧠 Jeśli resume_dir istnieje – kontynuuj w nim."""
         if resume_dir is not None and Path(resume_dir).exists():
-            print(f"[SAVER][{role}] ▶️ KontynuujÄ™ zapis w {resume_dir}")
+            print(f"[SAVER][{role}] ▶️ Kontynuuję zapis w {resume_dir}")
             return Path(resume_dir)
 
         root = current_root()
@@ -605,7 +605,7 @@ def saver_worker_bin(role, in_q, root_dir, batch_frames, roll_every,
         sess.mkdir(parents=True, exist_ok=True)
         (sess / "snapshots").mkdir(parents=True, exist_ok=True)
 
-        # đź†• zapisz w utils_config do wykorzystania przy reconnect
+        # 🆕 zapisz w utils_config do wykorzystania przy reconnect
         utils_config._CURRENT_SESSION_DIR = str(sess)
         return sess
 
@@ -654,7 +654,7 @@ def saver_worker_bin(role, in_q, root_dir, batch_frames, roll_every,
             last_sync_ts = time.time()
             frames_seen_total = 0
 
-            # đź§  Ustal katalog sesji
+            # 🧠 Ustal katalog sesji
             session_dir = resolve_session_dir()
             try:
                 role_dir = ensure_role_folder(role, session_dir)
@@ -671,9 +671,9 @@ def saver_worker_bin(role, in_q, root_dir, batch_frames, roll_every,
             recording_was_active = True
             draining_after_stop = False
 
-        # âŹą STOP nagrywania
+        # ⏹ STOP nagrywania
         if (not current_rec) and prev_rec_state and recording_was_active and not draining_after_stop:
-            print(f"[SAVER][{role}] âŹą Stop - czekam aĹĽ kolejka się opróżni")
+            print(f"[SAVER][{role}] ⏹ Stop - czekam aż kolejka się opróżni")
             draining_after_stop = True
 
         prev_rec_state = current_rec
@@ -695,7 +695,7 @@ def saver_worker_bin(role, in_q, root_dir, batch_frames, roll_every,
                 draining_after_stop = False
             continue
 
-        # OdbiĂłr ramek
+        # Odbiór ramek
         try:
             role_in, ts_ns, frame = in_q.get(timeout=0.2)
         except queue.Empty:
@@ -781,14 +781,14 @@ def reconfigure_ring_buffer(seconds: int, width: int | None = None, height: int 
     global _GLOBAL_MULTI_BUFFER, _GLOBAL_MULTI_BUFFER_LOCK, _BUFFER_FRAMES, _BUFFER_META, _BUFFER_TRACE, _BUFFER_SET_COUNTER
 
     if not BUFFER_AVAILABLE:
-        return False, "VisionRingBuffer niedostÄ™pny"
+        return False, "VisionRingBuffer niedostępny"
 
     seconds = max(1, int(seconds))
 
     try:
         with _GLOBAL_MULTI_BUFFER_LOCK:
             if _GLOBAL_MULTI_BUFFER is None:
-                return False, "Bufor nie zostaĹ‚ jeszcze zainicjalizowany"
+                return False, "Bufor nie został jeszcze zainicjalizowany"
 
             width = int(width or _GLOBAL_MULTI_BUFFER.width)
             height = int(height or _GLOBAL_MULTI_BUFFER.height)
@@ -808,19 +808,19 @@ def reconfigure_ring_buffer(seconds: int, width: int | None = None, height: int 
             _BUFFER_TRACE = deque(maxlen=max(128, cap + 32))
             _BUFFER_SET_COUNTER = 0
 
-        print(f"[BUFFER] đź” Reconfigured buffer to {seconds}s")
+        print(f"[BUFFER] 🔁 Reconfigured buffer to {seconds}s")
         return True, f"Buffer reconfigured to {seconds}s"
     except Exception as e:
         return False, f"Buffer reconfigure failed: {e}"
 
-# 🎯 FUNKCJE BUFORA - Zapis bufora na ĹĽÄ…danie
+# 🎯 FUNKCJE BUFORA - Zapis bufora na żądanie
 def save_buffer_to_disk(output_dir="buffer_recordings", role=None):
     """
     Zapisuje bufor do dysku (wszystkie 4 kamery razem jak w demo)
     
     Args:
         output_dir: Folder docelowy
-        role: Ignorowany (bufor jest wspĂłlny dla wszystkich kamer)
+        role: Ignorowany (bufor jest wspólny dla wszystkich kamer)
     
     Returns:
         tuple: (success: bool, message: str, files_saved: list)
@@ -828,10 +828,10 @@ def save_buffer_to_disk(output_dir="buffer_recordings", role=None):
     global _GLOBAL_MULTI_BUFFER
     
     if not BUFFER_AVAILABLE:
-        return False, "VisionRingBuffer niedostÄ™pny", []
+        return False, "VisionRingBuffer niedostępny", []
     
     if _GLOBAL_MULTI_BUFFER is None:
-        return False, "Bufor nie zostaĹ‚ jeszcze zainicjalizowany", []
+        return False, "Bufor nie został jeszcze zainicjalizowany", []
     
     from pathlib import Path
     import time
@@ -859,10 +859,10 @@ def save_buffer_to_disk(output_dir="buffer_recordings", role=None):
         frames_count = status['capacity'] if status['full'] else status['index']
         total_frames = frames_count * 4  # 4 kamery
         
-        message = f"Zapisano bufor: {frames_count} zestawĂłw klatek ({total_frames} klatek Ĺ‚Ä…cznie)"
+        message = f"Zapisano bufor: {frames_count} zestawów klatek ({total_frames} klatek łącznie)"
         saved_files = [str(buffer_output)]
         
-        print(f"[BUFFER] đź’ľ {message} â†’ {buffer_output}")
+        print(f"[BUFFER] 💾 {message} → {buffer_output}")
         
         return True, message, saved_files
             
@@ -872,10 +872,10 @@ def save_buffer_to_disk(output_dir="buffer_recordings", role=None):
 
 def get_buffer_status(role=None):
     """
-    Zwraca status bufora (wspĂłlnego dla wszystkich kamer)
+    Zwraca status bufora (wspólnego dla wszystkich kamer)
     
     Args:
-        role: Ignorowany (bufor jest wspĂłlny)
+        role: Ignorowany (bufor jest wspólny)
     
     Returns:
         dict: Status bufora
@@ -883,14 +883,14 @@ def get_buffer_status(role=None):
     global _GLOBAL_MULTI_BUFFER
     
     if not BUFFER_AVAILABLE:
-        return {"available": False, "error": "VisionRingBuffer niedostÄ™pny"}
+        return {"available": False, "error": "VisionRingBuffer niedostępny"}
     
     try:
         if _GLOBAL_MULTI_BUFFER is None:
             return {
                 "available": True, 
                 "initialized": False,
-                "error": "Bufor nie zostaĹ‚ jeszcze zainicjalizowany (czekam na pierwsze klatki)"
+                "error": "Bufor nie został jeszcze zainicjalizowany (czekam na pierwsze klatki)"
             }
         
         return {
@@ -910,8 +910,8 @@ def get_buffer_status(role=None):
 
 def get_buffer_trace_snapshot(max_sets: int | None = None):
     """
-    Zwraca historiÄ™ metryk per-zestaw 4 klatek z bufora.
-    KaĹĽdy element odpowiada jednemu push() do VisionRingBuffer.
+    Zwraca historię metryk per-zestaw 4 klatek z bufora.
+    Każdy element odpowiada jednemu push() do VisionRingBuffer.
     """
     global _BUFFER_TRACE, _GLOBAL_MULTI_BUFFER
     try:
@@ -944,7 +944,7 @@ def get_buffer_trace_snapshot(max_sets: int | None = None):
 
 def cleanup_buffers():
     """
-    CzyĹ›ci bufor (wywoĹ‚aj przy zamkniÄ™ciu aplikacji)
+    Czyści bufor (wywołaj przy zamknięciu aplikacji)
     """
     global _GLOBAL_MULTI_BUFFER, _BUFFER_FRAMES, _BUFFER_META, _BUFFER_TRACE, _BUFFER_SET_COUNTER
     
@@ -957,7 +957,7 @@ def cleanup_buffers():
                 _GLOBAL_MULTI_BUFFER.stop()
                 print("[BUFFER]  Zatrzymano globalny bufor")
             except Exception as e:
-                print(f"[BUFFER] âš ď¸Ź Błąd zatrzymywania bufora: {e}")
+                print(f"[BUFFER] ⚠️ Błąd zatrzymywania bufora: {e}")
         
         _GLOBAL_MULTI_BUFFER = None
         _BUFFER_FRAMES.clear()
@@ -967,5 +967,5 @@ def cleanup_buffers():
         print("[BUFFER] 🧹 Bufor wyczyszczony")
         
     except Exception as e:
-        print(f"[BUFFER] âš ď¸Ź Błąd czyszczenia bufora: {e}")
+        print(f"[BUFFER] ⚠️ Błąd czyszczenia bufora: {e}")
 

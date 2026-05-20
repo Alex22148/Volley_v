@@ -21,6 +21,26 @@ import matplotlib.pyplot as plt
 
 os.environ.setdefault("YOLO_AUTOINSTALL", "False")
 
+
+def _prefer_cuda_12_runtime() -> None:
+    if os.name != "nt":
+        return
+
+    cuda_root = Path(os.environ.get("CUDA_PATH_V12_8", r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8"))
+    cuda_bin = cuda_root / "bin"
+    if not cuda_bin.exists():
+        return
+
+    os.environ["PATH"] = str(cuda_bin) + os.pathsep + os.environ.get("PATH", "")
+    if hasattr(os, "add_dll_directory"):
+        try:
+            os.add_dll_directory(str(cuda_bin))
+        except OSError:
+            pass
+
+
+_prefer_cuda_12_runtime()
+
 try:
     from ultralytics import YOLO
 except Exception as exc:  # pragma: no cover
@@ -164,7 +184,12 @@ def iou_xyxy(a: list[float] | None, b: list[float] | None) -> float | None:
     return float(inter / union)
 
 
-def create_model(path: Path, device: str, warmup_batch_size: int = 1) -> tuple[Any | None, str]:
+def create_model(
+    path: Path,
+    device: str,
+    warmup_batch_size: int = 1,
+    warmup_imgsz: int | tuple[int, int] = 64,
+) -> tuple[Any | None, str]:
     if not path.exists():
         return None, f"Model nie istnieje: {path}"
     if YOLO is None:
@@ -172,9 +197,13 @@ def create_model(path: Path, device: str, warmup_batch_size: int = 1) -> tuple[A
     try:
         model = YOLO(str(path), task="detect")
         # warmup minimalny na pustym obrazie dla stabilizacji pierwszego pomiaru
-        dummy = np.zeros((64, 64, 3), dtype=np.uint8)
+        if isinstance(warmup_imgsz, tuple):
+            dummy_h, dummy_w = int(warmup_imgsz[0]), int(warmup_imgsz[1])
+        else:
+            dummy_h = dummy_w = int(warmup_imgsz)
+        dummy = np.zeros((dummy_h, dummy_w, 3), dtype=np.uint8)
         warmup_input: Any = dummy if warmup_batch_size <= 1 else [dummy.copy() for _ in range(warmup_batch_size)]
-        model.predict(warmup_input, imgsz=64, conf=0.01, iou=0.01, device=device, verbose=False)
+        model.predict(warmup_input, imgsz=warmup_imgsz, conf=0.01, iou=0.01, device=device, verbose=False)
         return model, ""
     except Exception as exc:
         return None, f"Nie udało się załadować modelu {path.name}: {type(exc).__name__}: {exc}"
@@ -305,6 +334,154 @@ def run_backend_on_image(
     except Exception as exc:
         base["error"] = f"{type(exc).__name__}: {exc}"
         return base
+
+
+def _empty_backend_row(image_name: str, backend: str, batch_size: int, error: str = "") -> dict[str, Any]:
+    return {
+        "image": image_name,
+        "backend": backend.upper(),
+        "detected": False,
+        "num_detections": 0,
+        "best_confidence": None,
+        "bbox_xyxy": None,
+        "preprocess_ms": None,
+        "inference_ms": None,
+        "postprocess_ms": None,
+        "color_ms": None,
+        "total_ms": None,
+        "predict_ms": None,
+        "e2e_ms": None,
+        "preprocess_ms_packet": None,
+        "inference_ms_packet": None,
+        "postprocess_ms_packet": None,
+        "total_ms_packet": None,
+        "predict_ms_packet": None,
+        "e2e_ms_packet": None,
+        "batch_size": int(batch_size),
+        "all_detections": [],
+        "error": error,
+    }
+
+
+def _row_from_yolo_result(
+    *,
+    image_name: str,
+    backend: str,
+    result: Any,
+    batch_size: int,
+    color_ms_packet: float,
+    predict_ms_packet: float,
+) -> dict[str, Any]:
+    row = _empty_backend_row(image_name, backend, batch_size)
+    bs = max(1, int(batch_size))
+    speed = getattr(result, "speed", {}) or {}
+    pre_packet = safe_float(speed.get("preprocess"))
+    inf_packet = safe_float(speed.get("inference"))
+    post_packet = safe_float(speed.get("postprocess"))
+
+    row["color_ms"] = float(color_ms_packet / bs)
+    row["preprocess_ms_packet"] = pre_packet
+    row["inference_ms_packet"] = inf_packet
+    row["postprocess_ms_packet"] = post_packet
+    row["predict_ms_packet"] = predict_ms_packet
+    row["total_ms_packet"] = predict_ms_packet
+    row["preprocess_ms"] = None if pre_packet is None else float(pre_packet / bs)
+    row["inference_ms"] = None if inf_packet is None else float(inf_packet / bs)
+    row["postprocess_ms"] = None if post_packet is None else float(post_packet / bs)
+    row["predict_ms"] = float(predict_ms_packet / bs)
+    row["total_ms"] = float(predict_ms_packet / bs)
+    row["e2e_ms_packet"] = float(color_ms_packet + predict_ms_packet)
+    row["e2e_ms"] = float((color_ms_packet + predict_ms_packet) / bs)
+
+    boxes = getattr(result, "boxes", None)
+    if boxes is None or boxes.xyxy is None:
+        return row
+
+    xyxy = boxes.xyxy.cpu().numpy() if hasattr(boxes.xyxy, "cpu") else np.array(boxes.xyxy)
+    confs = boxes.conf.cpu().numpy() if hasattr(boxes.conf, "cpu") else np.array(boxes.conf)
+    clss = boxes.cls.cpu().numpy() if hasattr(boxes.cls, "cpu") else np.array(boxes.cls)
+
+    detections: list[dict[str, Any]] = []
+    for i in range(len(xyxy)):
+        det = {
+            "bbox_xyxy": [float(x) for x in xyxy[i].tolist()],
+            "confidence": float(confs[i]),
+            "class_id": int(clss[i]) if len(clss) > i else None,
+        }
+        detections.append(det)
+
+    row["num_detections"] = len(detections)
+    row["detected"] = len(detections) > 0
+    row["all_detections"] = detections
+    if detections:
+        best = max(detections, key=lambda d: d["confidence"])
+        row["best_confidence"] = float(best["confidence"])
+        row["bbox_xyxy"] = list(best["bbox_xyxy"])
+    return row
+
+
+def run_backend_on_images_batched(
+    model: Any | None,
+    backend: str,
+    image_paths: list[Path],
+    imgsz: int | tuple[int, int],
+    conf_thres: float,
+    iou_thres: float,
+    device: str,
+    batch_size: int,
+) -> list[dict[str, Any]]:
+    if model is None:
+        return [_empty_backend_row(p.name, backend, batch_size, "Backend niedostępny.") for p in image_paths]
+
+    chunk_size = max(1, int(batch_size))
+    rows: list[dict[str, Any]] = []
+    for start_idx in range(0, len(image_paths), chunk_size):
+        chunk_paths = image_paths[start_idx:start_idx + chunk_size]
+        color_imgs: list[np.ndarray] = []
+        valid_names: list[str] = []
+        color_started = time.perf_counter()
+        for image_path in chunk_paths:
+            img = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
+            if img is None:
+                rows.append(_empty_backend_row(image_path.name, backend, batch_size, f"Nie można odczytać obrazu: {image_path}"))
+                continue
+            color_imgs.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            valid_names.append(image_path.name)
+        color_ms_packet = (time.perf_counter() - color_started) * 1000.0
+
+        if not color_imgs:
+            continue
+
+        actual_count = len(color_imgs)
+        while len(color_imgs) < chunk_size:
+            color_imgs.append(color_imgs[-1].copy())
+
+        try:
+            started = time.perf_counter()
+            results = model.predict(
+                color_imgs,
+                imgsz=imgsz,
+                conf=conf_thres,
+                iou=iou_thres,
+                device=device,
+                verbose=False,
+            )
+            predict_ms_packet = (time.perf_counter() - started) * 1000.0
+            for name, result in zip(valid_names, list(results)[:actual_count]):
+                rows.append(_row_from_yolo_result(
+                    image_name=name,
+                    backend=backend,
+                    result=result,
+                    batch_size=batch_size,
+                    color_ms_packet=color_ms_packet,
+                    predict_ms_packet=predict_ms_packet,
+                ))
+        except Exception as exc:
+            err = f"{type(exc).__name__}: {exc}"
+            for name in valid_names:
+                rows.append(_empty_backend_row(name, backend, batch_size, err))
+
+    return rows
 
 
 def compare_backend_vs_pt(
@@ -441,6 +618,12 @@ def build_backend_summary(rows: list[dict[str, Any]], pairs: list[dict[str, Any]
         color_vals = [float(r["color_ms"]) for r in ok_rows if r.get("color_ms") is not None]
         predict_vals = [float(r["predict_ms"]) for r in ok_rows if r.get("predict_ms") is not None]
         e2e_vals = [float(r["e2e_ms"]) for r in ok_rows if r.get("e2e_ms") is not None]
+        total_packet_vals = [float(r["total_ms_packet"]) for r in ok_rows if r.get("total_ms_packet") is not None]
+        pre_packet_vals = [float(r["preprocess_ms_packet"]) for r in ok_rows if r.get("preprocess_ms_packet") is not None]
+        inf_packet_vals = [float(r["inference_ms_packet"]) for r in ok_rows if r.get("inference_ms_packet") is not None]
+        post_packet_vals = [float(r["postprocess_ms_packet"]) for r in ok_rows if r.get("postprocess_ms_packet") is not None]
+        predict_packet_vals = [float(r["predict_ms_packet"]) for r in ok_rows if r.get("predict_ms_packet") is not None]
+        e2e_packet_vals = [float(r["e2e_ms_packet"]) for r in ok_rows if r.get("e2e_ms_packet") is not None]
         conf_vals = [float(r["best_confidence"]) for r in ok_rows if r.get("best_confidence") is not None]
         detected_count = sum(1 for r in ok_rows if r.get("detected"))
         detection_rate = (100.0 * detected_count / len(ok_rows)) if ok_rows else 0.0
@@ -463,6 +646,18 @@ def build_backend_summary(rows: list[dict[str, Any]], pairs: list[dict[str, Any]
                 "mean_color_ms": mean_or_none(color_vals),
                 "mean_predict_ms": mean_or_none(predict_vals),
                 "mean_e2e_ms": mean_or_none(e2e_vals),
+                "mean_total_ms_packet": mean_or_none(total_packet_vals),
+                "p95_total_ms_packet": percentile(total_packet_vals, 0.95),
+                "mean_preprocess_ms_packet": mean_or_none(pre_packet_vals),
+                "p95_preprocess_ms_packet": percentile(pre_packet_vals, 0.95),
+                "mean_inference_ms_packet": mean_or_none(inf_packet_vals),
+                "p95_inference_ms_packet": percentile(inf_packet_vals, 0.95),
+                "mean_postprocess_ms_packet": mean_or_none(post_packet_vals),
+                "p95_postprocess_ms_packet": percentile(post_packet_vals, 0.95),
+                "mean_predict_ms_packet": mean_or_none(predict_packet_vals),
+                "p95_predict_ms_packet": percentile(predict_packet_vals, 0.95),
+                "mean_e2e_ms_packet": mean_or_none(e2e_packet_vals),
+                "p95_e2e_ms_packet": percentile(e2e_packet_vals, 0.95),
                 "detection_rate_percent": detection_rate,
                 "mean_best_confidence": mean_or_none(conf_vals),
                 "mean_iou_vs_pt": mean_or_none(iou_vals) if backend in ("ONNX", "ENGINE") else None,
@@ -531,8 +726,8 @@ def save_charts(
     # 1
     plt.figure(figsize=(8, 5))
     plt.bar(labels, mean_total, color=["#2ca02c", "#ff7f0e", "#1f77b4"])
-    plt.ylabel("ms")
-    plt.title("Średni czas całkowity per backend")
+    plt.ylabel("ms / image")
+    plt.title("Średni czas całkowity per backend (per image)")
     plt.tight_layout()
     plt.savefig(out_charts_dir / "chart_01_sredni_czas_calkowity_backend.png", dpi=140)
     plt.close()
@@ -540,8 +735,8 @@ def save_charts(
     # 2
     plt.figure(figsize=(8, 5))
     plt.bar(labels, p95_total, color=["#2ca02c", "#ff7f0e", "#1f77b4"])
-    plt.ylabel("ms")
-    plt.title("p95 czasu całkowitego per backend")
+    plt.ylabel("ms / image")
+    plt.title("p95 czasu całkowitego per backend (per image)")
     plt.tight_layout()
     plt.savefig(out_charts_dir / "chart_02_p95_czas_calkowity_backend.png", dpi=140)
     plt.close()
@@ -554,8 +749,8 @@ def save_charts(
     bottoms = [a + b for a, b in zip(mean_pre, mean_inf)]
     plt.bar(x, mean_post, bottom=bottoms, label="postprocess_ms")
     plt.xticks(x, labels)
-    plt.ylabel("ms")
-    plt.title("Rozbicie czasu na etapy per backend")
+    plt.ylabel("ms / image")
+    plt.title("Rozbicie czasu na etapy per backend (per image)")
     plt.legend()
     plt.tight_layout()
     plt.savefig(out_charts_dir / "chart_03_rozbicie_czasu_backend.png", dpi=140)
@@ -610,7 +805,7 @@ def save_charts(
     for x, y, n, c in zip(speed, iou_scatter, names, colors):
         plt.scatter([x], [y], label=n, color=c, s=80)
         plt.text(x, y, f" {n}", va="bottom")
-    plt.xlabel("Średni total_ms")
+    plt.xlabel("Średni total_ms / image")
     plt.ylabel("Średni IoU vs PT")
     plt.title("Speed vs Accuracy")
     plt.ylim(0, 1.05)
@@ -626,8 +821,8 @@ def save_charts(
     eng_t = [float(r["total_ms"]) for r in rows if r["backend"] == "ENGINE" and r.get("total_ms") is not None and not r.get("error")]
     data = [pt_t if pt_t else [0.0], onnx_t if onnx_t else [0.0], eng_t if eng_t else [0.0]]
     plt.boxplot(data, tick_labels=["PT", "ONNX", "ENGINE"])
-    plt.ylabel("total_ms")
-    plt.title("Rozkład czasów całkowitych")
+    plt.ylabel("total_ms / image")
+    plt.title("Rozkład czasów całkowitych (per image)")
     plt.tight_layout()
     plt.savefig(out_charts_dir / "chart_09_rozklad_total_ms_backend.png", dpi=140)
     plt.close()
@@ -667,6 +862,163 @@ def write_csv_rows(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]
         writer.writeheader()
         for row in rows:
             writer.writerow({k: row.get(k) for k in fieldnames})
+
+
+def build_all_cases_summary(case_records: list[dict[str, Any]], root_out_dir: Path) -> None:
+    if not case_records:
+        return
+
+    rows: list[dict[str, Any]] = []
+    for rec in case_records:
+        meta = rec["meta"]
+        batch = int(meta["batch_n"])
+        for summary in rec["summary"]:
+            mean_total = safe_float(summary.get("mean_total_ms"))
+            p95_total = safe_float(summary.get("p95_total_ms"))
+            mean_predict = safe_float(summary.get("mean_predict_ms"))
+            mean_e2e = safe_float(summary.get("mean_e2e_ms"))
+            mean_total_packet = safe_float(summary.get("mean_total_ms_packet"))
+            p95_total_packet = safe_float(summary.get("p95_total_ms_packet"))
+            mean_predict_packet = safe_float(summary.get("mean_predict_ms_packet"))
+            mean_e2e_packet = safe_float(summary.get("mean_e2e_ms_packet"))
+            rows.append({
+                "variant": meta["variant"],
+                "resolution": meta["imgsz"],
+                "batch": batch,
+                "backend": summary["backend"],
+                "mean_total_ms_per_batch": mean_total_packet,
+                "p95_total_ms_per_batch": p95_total_packet,
+                "mean_total_ms_per_image": mean_total,
+                "p95_total_ms_per_image": p95_total,
+                "mean_predict_ms_per_batch": mean_predict_packet,
+                "mean_predict_ms_per_image": mean_predict,
+                "mean_e2e_ms_per_batch": mean_e2e_packet,
+                "mean_e2e_ms_per_image": mean_e2e,
+                "mean_color_ms_per_image": summary.get("mean_color_ms"),
+                "mean_preprocess_ms_per_image": summary.get("mean_preprocess_ms"),
+                "mean_inference_ms_per_image": summary.get("mean_inference_ms"),
+                "mean_postprocess_ms_per_image": summary.get("mean_postprocess_ms"),
+                "mean_preprocess_ms_per_batch": summary.get("mean_preprocess_ms_packet"),
+                "mean_inference_ms_per_batch": summary.get("mean_inference_ms_packet"),
+                "mean_postprocess_ms_per_batch": summary.get("mean_postprocess_ms_packet"),
+                "p95_preprocess_ms_per_batch": summary.get("p95_preprocess_ms_packet"),
+                "p95_inference_ms_per_batch": summary.get("p95_inference_ms_packet"),
+                "p95_postprocess_ms_per_batch": summary.get("p95_postprocess_ms_packet"),
+                "detection_rate_percent": summary.get("detection_rate_percent"),
+                "mean_best_confidence": summary.get("mean_best_confidence"),
+                "mean_iou_vs_pt": summary.get("mean_iou_vs_pt"),
+                "missed_detections_vs_pt": summary.get("missed_detections_vs_pt"),
+                "errors_count": summary.get("errors_count"),
+                "samples": summary.get("samples"),
+                "backend_verdict": summary.get("backend_verdict"),
+                "case_dir": meta["output_dir"],
+            })
+
+    fieldnames = [
+        "variant", "resolution", "batch", "backend",
+        "mean_total_ms_per_batch", "p95_total_ms_per_batch",
+        "mean_total_ms_per_image", "p95_total_ms_per_image",
+        "mean_predict_ms_per_batch", "mean_predict_ms_per_image",
+        "mean_e2e_ms_per_batch", "mean_e2e_ms_per_image",
+        "mean_color_ms_per_image", "mean_preprocess_ms_per_image",
+        "mean_inference_ms_per_image", "mean_postprocess_ms_per_image",
+        "mean_preprocess_ms_per_batch", "mean_inference_ms_per_batch",
+        "mean_postprocess_ms_per_batch", "p95_preprocess_ms_per_batch",
+        "p95_inference_ms_per_batch", "p95_postprocess_ms_per_batch",
+        "detection_rate_percent", "mean_best_confidence", "mean_iou_vs_pt",
+        "missed_detections_vs_pt", "errors_count", "samples", "backend_verdict",
+        "case_dir",
+    ]
+    csv_path = root_out_dir / "backend_compare_all_cases_summary.csv"
+    write_csv_rows(csv_path, rows, fieldnames)
+
+    labels = [f"{r['resolution']} b{r['batch']}" for r in rows if r["backend"] == "ENGINE"]
+    backend_order = ["PT", "ONNX", "ENGINE"]
+    x = np.arange(len(labels))
+    width = 0.25
+    chart_path = root_out_dir / "backend_compare_all_cases_total_ms.png"
+    plt.figure(figsize=(max(12, len(labels) * 0.75), 6))
+    for offset, backend in enumerate(backend_order):
+        vals = []
+        for label in labels:
+            match = next(
+                (r for r in rows if r["backend"] == backend and f"{r['resolution']} b{r['batch']}" == label),
+                None,
+            )
+            vals.append(ensure_float(match.get("mean_total_ms_per_image") if match else None))
+        plt.bar(x + (offset - 1) * width, vals, width, label=backend)
+    plt.ylabel("mean total_ms / image")
+    plt.title("Backend compare - zbiorczo po wariantach")
+    plt.xticks(x, labels, rotation=65, ha="right")
+    plt.grid(True, axis="y", alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(chart_path, dpi=150)
+    plt.close()
+
+    def fmt(v: Any, digits: int = 3) -> str:
+        x = safe_float(v)
+        return "-" if x is None else f"{x:.{digits}f}"
+
+    report_path = root_out_dir / "backend_compare_all_cases_report.md"
+    lines: list[str] = []
+    a = lines.append
+    a("# Backend Compare - raport zbiorczy")
+    a("")
+    a("Zbiera wszystkie `case_*` z jednego uruchomienia `10_compare_pt_onnx_engine_detections.py`.")
+    a("")
+    a("## Wykres zbiorczy")
+    a("")
+    a("![Backend compare all cases](backend_compare_all_cases_total_ms.png)")
+    a("")
+    a("## Tabela: batch vs image")
+    a("")
+    a("| Variant | Backend | Total mean / batch ms | Total p95 / batch ms | Total mean / image ms | Total p95 / image ms | IoU vs PT | Missed vs PT | Verdict |")
+    a("|---|---|---:|---:|---:|---:|---:|---:|---|")
+    for r in rows:
+        a(
+            f"| {r['variant']} | {r['backend']} | "
+            f"{fmt(r['mean_total_ms_per_batch'])} | {fmt(r['p95_total_ms_per_batch'])} | "
+            f"{fmt(r['mean_total_ms_per_image'])} | {fmt(r['p95_total_ms_per_image'])} | "
+            f"{fmt(r['mean_iou_vs_pt'])} | "
+            f"{'-' if r['missed_detections_vs_pt'] is None else r['missed_detections_vs_pt']} | "
+            f"{r['backend_verdict']} |"
+        )
+    a("")
+    a("## Rozbicie etapów per image")
+    a("")
+    a("| Variant | Backend | Color mean / image ms | Preprocess mean / image ms | Inference mean / image ms | Postprocess mean / image ms | Total mean / image ms |")
+    a("|---|---|---:|---:|---:|---:|---:|")
+    for r in rows:
+        a(
+            f"| {r['variant']} | {r['backend']} | "
+            f"{fmt(r['mean_color_ms_per_image'])} | {fmt(r['mean_preprocess_ms_per_image'])} | "
+            f"{fmt(r['mean_inference_ms_per_image'])} | {fmt(r['mean_postprocess_ms_per_image'])} | "
+            f"{fmt(r['mean_total_ms_per_image'])} |"
+        )
+    a("")
+    a("## Rozbicie etapów per batch")
+    a("")
+    a("| Variant | Backend | Preprocess mean / batch ms | Inference mean / batch ms | Postprocess mean / batch ms | Predict mean / batch ms | E2E mean / batch ms |")
+    a("|---|---|---:|---:|---:|---:|---:|")
+    for r in rows:
+        a(
+            f"| {r['variant']} | {r['backend']} | "
+            f"{fmt(r['mean_preprocess_ms_per_batch'])} | {fmt(r['mean_inference_ms_per_batch'])} | "
+            f"{fmt(r['mean_postprocess_ms_per_batch'])} | {fmt(r['mean_predict_ms_per_batch'])} | "
+            f"{fmt(r['mean_e2e_ms_per_batch'])} |"
+        )
+    a("")
+    a("## Pliki")
+    a("")
+    a("- `backend_compare_all_cases_summary.csv`")
+    a("- `backend_compare_all_cases_report.md`")
+    a("- `backend_compare_all_cases_total_ms.png`")
+    a("- `case_*/backend_compare_report.md`")
+    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"[DONE] all-cases summary -> {csv_path}")
+    print(f"[DONE] all-cases report  -> {report_path}")
+    print(f"[DONE] all-cases chart   -> {chart_path}")
 
 
 def build_report_md(
@@ -810,14 +1162,22 @@ def build_report_md(
 
 def main() -> int:
     real_images = r""
-    pt = r"C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\fast_path_v1\model_base\best.pt"
-    onnx_dir = r"C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\onnx"
-    engine_dir = r"C:\Users\Hyperbook\python_project\VolleyHub_K\dist\fastpath_lab_benchmark\engines\static"
+    pt = r"C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\dist\fastpath_lab_benchmark\fast_path_v1\model_base\best.pt"
+    onnx_dir = r"C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\dist\fastpath_lab_benchmark\fast_path_v1\engines\onnx"
+    engine_dir = r"C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\dist\fastpath_lab_benchmark\fast_path_v1\engines\static"
     conf = 0.25
     iou = 0.45
     device = "cuda"
     out_dir_arg = ""
-    synthetic_count = 500
+    # Smoke/default mode for pipeline use. Full backend-quality sweeps with
+    # hundreds of images should be a separate manual run, not part of 11_pipeline.
+    synthetic_count = 150
+    max_overlays_per_case = 8
+    compare_matrix: dict[str, tuple[int, int, set[int]]] = {
+        "v640": (640, 640, {4, 8, 12, 16,32}),
+        "v960": (960, 960, {4, 8, 12, 16,32}),
+        "v1088x1920": (1088, 1920, {4, 8, 12, 16}),
+    }
 
     pt_path = Path(pt).expanduser().resolve()
     onnx_dir_path = Path(onnx_dir).expanduser().resolve()
@@ -842,6 +1202,9 @@ def main() -> int:
         h = int(m.group(1))
         w = int((m.group(2) or "").lstrip("x")) if m.group(2) else h
         batch_n = int(m.group(3))
+        allowed = compare_matrix.get(f"v{m.group(1)}{m.group(2) or ''}")
+        if allowed is None or (h, w) != allowed[:2] or batch_n not in allowed[2]:
+            continue
         if variant in onnx_by_variant and onnx_by_variant[variant][0] == h and onnx_by_variant[variant][1] == w:
             model_cases.append((variant, h, w, batch_n, onnx_by_variant[variant][2], p))
 
@@ -858,6 +1221,15 @@ def main() -> int:
     else:
         image_files_fixed = []
         print("[INFO] mode=synthetic | images will be generated per case at target imgsz")
+
+    total_predict_calls = len(model_cases) * synthetic_count * len(BACKENDS)
+    print(
+        "[INFO] compare scope | "
+        f"cases={len(model_cases)} synthetic_count={synthetic_count} "
+        f"backend_predict_calls~={total_predict_calls} overlays_per_case<={max_overlays_per_case}"
+    )
+
+    all_case_records: list[dict[str, Any]] = []
 
     for case_idx, (variant, case_h, case_w, case_batch_n, case_onnx_path, case_engine_path) in enumerate(model_cases, start=1):
         out_dir = root_out_dir / f"case_{case_idx:03d}_{variant}"
@@ -878,10 +1250,16 @@ def main() -> int:
         requested_device = str(device).lower().strip()
         models: dict[str, Any | None] = {}
         model_errors: dict[str, str] = {}
+        warmup_imgsz: int | tuple[int, int] = (case_h, case_w) if case_h != case_w else case_h
 
         for key, pth in [("pt", pt_path), ("onnx", case_onnx_path), ("engine", case_engine_path)]:
             warmup_batch_size = case_batch_n
-            model, err = create_model(pth, requested_device, warmup_batch_size=warmup_batch_size)
+            model, err = create_model(
+                pth,
+                requested_device,
+                warmup_batch_size=warmup_batch_size,
+                warmup_imgsz=warmup_imgsz,
+            )
             models[key] = model
             model_errors[key] = err
 
@@ -892,7 +1270,12 @@ def main() -> int:
                 for key, pth in [("pt", pt_path), ("onnx", case_onnx_path), ("engine", case_engine_path)]:
                     if models[key] is None:
                         warmup_batch_size = case_batch_n
-                        model, err = create_model(pth, "cpu", warmup_batch_size=warmup_batch_size)
+                        model, err = create_model(
+                            pth,
+                            "cpu",
+                            warmup_batch_size=warmup_batch_size,
+                            warmup_imgsz=warmup_imgsz,
+                        )
                         if model is not None:
                             models[key] = model
                             model_errors[key] = f"{model_errors[key]} | fallback_cpu_ok"
@@ -901,11 +1284,39 @@ def main() -> int:
 
         rows: list[dict[str, Any]] = []
         pairs: list[dict[str, Any]] = []
+        infer_imgsz: int | tuple[int, int] = (case_h, case_w) if case_h != case_w else case_h
+        batched_by_backend: dict[str, list[dict[str, Any]]] = {}
+        for key in ("pt", "onnx", "engine"):
+            print(f"[BATCH] {variant}: {key.upper()} predict chunks batch={case_batch_n} images={len(image_files)}")
+            batched_by_backend[key] = run_backend_on_images_batched(
+                models[key],
+                key,
+                image_files,
+                infer_imgsz,
+                conf,
+                iou,
+                device_used,
+                batch_size=case_batch_n,
+            )
+
+        rows_by_backend = {
+            key: {r["image"]: r for r in backend_rows}
+            for key, backend_rows in batched_by_backend.items()
+        }
+
         for idx, image_path in enumerate(image_files, start=1):
-            infer_imgsz: int | tuple[int, int] = (case_h, case_w) if case_h != case_w else case_h
-            result_pt = run_backend_on_image(models["pt"], "pt", image_path, infer_imgsz, conf, iou, device_used, batch_size=case_batch_n)
-            result_onnx = run_backend_on_image(models["onnx"], "onnx", image_path, infer_imgsz, conf, iou, device_used, batch_size=case_batch_n)
-            result_engine = run_backend_on_image(models["engine"], "engine", image_path, infer_imgsz, conf, iou, device_used, batch_size=case_batch_n)
+            result_pt = rows_by_backend["pt"].get(
+                image_path.name,
+                _empty_backend_row(image_path.name, "pt", case_batch_n, "Brak wyniku PT."),
+            )
+            result_onnx = rows_by_backend["onnx"].get(
+                image_path.name,
+                _empty_backend_row(image_path.name, "onnx", case_batch_n, "Brak wyniku ONNX."),
+            )
+            result_engine = rows_by_backend["engine"].get(
+                image_path.name,
+                _empty_backend_row(image_path.name, "engine", case_batch_n, "Brak wyniku ENGINE."),
+            )
             if result_pt.get("error") and model_errors["pt"]:
                 result_pt["error"] = f"{model_errors['pt']} | {result_pt['error']}"
             if result_onnx.get("error") and model_errors["onnx"]:
@@ -917,7 +1328,10 @@ def main() -> int:
                 compare_backend_vs_pt(image_path.name, "onnx", result_pt, result_onnx),
                 compare_backend_vs_pt(image_path.name, "engine", result_pt, result_engine),
             ])
-            draw_overlay(image_path, overlays_dir / f"frame_{idx:03d}_compare.jpg", result_pt, result_onnx, result_engine)
+            if idx <= max_overlays_per_case:
+                draw_overlay(image_path, overlays_dir / f"frame_{idx:03d}_compare.jpg", result_pt, result_onnx, result_engine)
+            if idx == 1 or idx % 8 == 0 or idx == len(image_files):
+                print(f"[COMPARE] {variant}: {idx}/{len(image_files)} images")
 
         summary = build_backend_summary(rows, pairs)
         for s in summary:
@@ -996,30 +1410,41 @@ def main() -> int:
             pairs=pairs,
             rows=rows,
         )
+        meta = {
+            "variant": variant,
+            "images": images_source,
+            "pt": str(pt_path),
+            "onnx": str(case_onnx_path),
+            "engine": str(case_engine_path),
+            "imgsz": f"{case_h}x{case_w}" if case_h != case_w else case_h,
+            "batch_n": case_batch_n,
+            "conf": conf,
+            "iou": iou,
+            "device_requested": requested_device,
+            "device_used": device_used,
+            "num_images": len(image_files),
+            "output_dir": str(out_dir),
+            "model_load_errors": model_errors,
+        }
         write_json(out_dir / "backend_compare_results.json", {
-            "meta": {
-                "variant": variant,
-                "images": images_source,
-                "pt": str(pt_path),
-                "onnx": str(case_onnx_path),
-                "engine": str(case_engine_path),
-                "imgsz": f"{case_h}x{case_w}" if case_h != case_w else case_h,
-                "batch_n": case_batch_n,
-                "conf": conf,
-                "iou": iou,
-                "device_requested": requested_device,
-                "device_used": device_used,
-                "num_images": len(image_files),
-                "output_dir": str(out_dir),
-                "model_load_errors": model_errors,
-            },
+            "meta": meta,
             "per_image_backend": rows,
             "pairs_vs_pt": pairs,
             "backend_summary": summary,
         })
+        all_case_records.append({
+            "meta": meta,
+            "summary": summary,
+        })
         write_csv_rows(out_dir / "backend_compare_summary.csv", summary, [
             "backend", "mean_total_ms", "p95_total_ms", "mean_preprocess_ms", "mean_inference_ms",
             "mean_postprocess_ms", "mean_color_ms", "mean_predict_ms", "mean_e2e_ms",
+            "mean_total_ms_packet", "p95_total_ms_packet",
+            "mean_preprocess_ms_packet", "p95_preprocess_ms_packet",
+            "mean_inference_ms_packet", "p95_inference_ms_packet",
+            "mean_postprocess_ms_packet", "p95_postprocess_ms_packet",
+            "mean_predict_ms_packet", "p95_predict_ms_packet",
+            "mean_e2e_ms_packet", "p95_e2e_ms_packet",
             "detection_rate_percent", "mean_best_confidence", "mean_iou_vs_pt",
             "missed_detections_vs_pt", "errors_count", "samples", "backend_verdict",
         ])
@@ -1031,6 +1456,8 @@ def main() -> int:
         if synthetic_tmp_dir is not None and synthetic_tmp_dir.exists():
             shutil.rmtree(synthetic_tmp_dir, ignore_errors=True)
         print(f"[DONE] {variant} -> {out_dir}")
+
+    build_all_cases_summary(all_case_records, root_out_dir)
 
     return 0
 

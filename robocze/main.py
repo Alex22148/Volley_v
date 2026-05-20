@@ -136,7 +136,7 @@ def clear_queue(q):
 
 def calibrate_ptp_offsets(cams, roles, stats_q=None):
     """
-    Przy PTP + Scheduled Action Commands nie korygujemy timestampĂłw software'owo.
+    Przy PTP + Scheduled Action Commands nie korygujemy timestampów software'owo.
     Ten krok zostaje tylko jako znacznik diagnostyczny.
     """
     print("[SYNC] PTP + Scheduled Action Commands aktywne brak software'owej korekcji OFFSETS.")
@@ -454,13 +454,13 @@ def control_worker(control_q, stop_evt, cams, roles, streaming_enabled, stats_q,
                 print("[CTRL] Snapshot triggered")
 
         elif cmd == "save_buffer":
-            # đźŽ¬ NOWA KOMENDA - Zapisz bufor
+            # 🎬 NOWA KOMENDA - Zapisz bufor
             import json
             import time
             try:
                 from capture.grabber_module import save_buffer_to_disk, get_buffer_status, get_buffer_trace_snapshot
                 
-                # Sprawdź status buforĂłw
+                # Sprawdź status buforów
                 status = get_buffer_status()
                 if not status.get("available", False):
                     stats_q.put("bufor niedostępny")
@@ -609,7 +609,7 @@ def control_worker(control_q, stop_evt, cams, roles, streaming_enabled, stats_q,
                                 "seconds": int(fixed_params.get("buffer_dt_s", 0) or 0),
                                 "trace_enabled": bool(shared_state.get("buffer_trace_enabled", False)) if shared_state is not None else False,
                                 "status": buffer_status,
-                                "frame_trace": buffer_trace,  # jedyne źródło timestampĂłw wszystkich zapisanych klatek
+                                "frame_trace": buffer_trace,  # jedyne źródło timestampów wszystkich zapisanych klatek
                             },
                             "pipeline": {
                                 "router_stats_last": yolo_router_stats,
@@ -898,7 +898,7 @@ def control_worker(control_q, stop_evt, cams, roles, streaming_enabled, stats_q,
                     shared_state["demo_test_name"] = payload.get("test_name")
                 if "operator_name" in payload:
                     shared_state["demo_operator_name"] = payload.get("operator_name")
-                print(f"[CTRL] đź§Ş demo context updated: {payload}")
+                print(f"[CTRL] 🧪 demo context updated: {payload}")
             except Exception as e:
                 print(f"[CTRL] ⚠️ demo_set_context failed: {e}")
 
@@ -1059,13 +1059,13 @@ def control_worker(control_q, stop_evt, cams, roles, streaming_enabled, stats_q,
                                               control_q=control_q)
 
                     if url:
-                        # start się udaĹ‚
+                        # start się udał
                         utils_config.remote_stream_enabled.set()
                         sel = zoom_role_var.value if hasattr(zoom_role_var, "value") else str(zoom_role_var)
                         set_selected_role(sel)
                         shared_state["selected_role"] = sel
                     else:
-                        # start nie wyszedĹ‚ – upewnij się, ĹĽe wszystko wyglÄ...da na OFF
+                        # start nie wyszedł – upewnij się, że wszystko wygląda na OFF
                         utils_config.remote_stream_enabled.clear()
                         shared_state["remote_url"] = None
                         print("[CTRL] WebRTC start returned no URL ().")
@@ -1148,7 +1148,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
     demo_sessions_dir = Path("logs") / "demo_sessions"
     init_demo_logger(demo_sessions_dir)
     #===============
-    # === KONFIGURACJA WYJĹšÄ† / PIPELINE'U ===
+    # === KONFIGURACJA WYJŚĆ / PIPELINE'U ===
     processing_config = {
         "preview":  {"scale": 0.2, "fps": 12, "color_format": "BGR", "send_every_n": 1},
         "remote":   {"scale": 0.8, "fps": 10, "color_format": "RGB", "send_every_n": 1},
@@ -1436,14 +1436,14 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
             stats_q.put(f"[INIT] ??? Periodic Signal configured: {role}")
         print("[INIT] >>> PRZED wait_for_all_ptp_ready()")
         stats_q.put("[INIT] >>> PRZED wait_for_all_ptp_ready()")
-        stats_q.put("[INIT] âŹł Czekam na PTP ready...")
+        stats_q.put("[INIT] ⏳ Czekam na PTP ready...")
 
         stats_q.put(f"[INIT] <<< PO wait_for_all_ptp_ready(): {ptp_ready}")
 
         if not ptp_ready and not skip_ptp_wait:
             stats_q.put("[INIT]  PTP nie jest gotowe")
             raise RuntimeError(
-                "PTP nie ustabilizowaĹ‚o się na wszystkich kamerach - przerywam start Periodic Signal"
+                "PTP nie ustabilizowało się na wszystkich kamerach - przerywam start Periodic Signal"
             )
 
         if ptp_ready:
@@ -1515,18 +1515,18 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
     stats_q.put("Kamery uruchomione")
 
 
-    # === WÄ...tki pomocnicze ===
+    # === Wątki pomocnicze ===
 
-    # === WÄ...tki pomocnicze ===
+    # === Wątki pomocnicze ===
     def start_helper_threads():
         from vision.yolo_module import process_batch_with_yolo, is_yolo_enabled
 
         def raw_fanout_router():
             """
-            Czyta wspĂłlne raw_q i rozdziela klatki warunkowo:
+            Czyta wspólne raw_q i rozdziela klatki warunkowo:
               - do save_raw_q tylko gdy recording_event jest ON
               - do yolo_raw_q tylko gdy YOLO jest ON
-            Gdy oba OFF -> tylko czyĹ›ci raw_q na bieĹĽÄ...co, bez dalszego przetwarzania.
+            Gdy oba OFF -> tylko czyści raw_q na bieżąco, bez dalszego przetwarzania.
             """
             forwarded = 0
             save_forwarded = 0
@@ -1538,7 +1538,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                 except queue.Empty:
                     continue
                 except (OSError, EOFError, BrokenPipeError):
-                    print("[RAW_FANOUT] queue handle closed â†’ exiting")
+                    print("[RAW_FANOUT] queue handle closed → exiting")
                     break
                 except Exception as e:
                     print(f"[RAW_FANOUT] get() error: {e}")
@@ -1634,10 +1634,10 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
 
             FRAME_PERIOD_NS = 20_000_000
 
-            # MA BYÄ†
-            STEP_TIMEOUT_MS = 400.0  # nie trzymaj starych bucketĂłw
+            # MA BYĆ
+            STEP_TIMEOUT_MS = 400.0  # nie trzymaj starych bucketów
             MATCH_TOL_NS = 5_000_000
-            MAX_PENDING_BUCKETS = 64  # maĹ‚y bufor pending dla live
+            MAX_PENDING_BUCKETS = 64  # mały bufor pending dla live
             seq_len = 2  # LIVE: zawsze 1 krok czasowy
             last_seq_len = seq_len
             ingress_per_role = {r: 0 for r in expected_roles}
@@ -1869,7 +1869,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                     item = yolo_raw_q.get(timeout=0.05)
                     items_to_route = [item]
 
-                    # FIFO: zachowujemy peĹ‚nÄ... ciÄ...gĹ‚oĹ›Ä‡ ramek (bez latest-only drain)
+                    # FIFO: zachowujemy pełną ciągłość ramek (bez latest-only drain)
                     items_to_route = [item]
 
                     try:
@@ -2276,7 +2276,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
 
         def build_3d_input_from_yolo_detections(detections_by_step, roles_local, max_objects=5):
             """
-            Buduje pts_bat i conf_bat WYĹÄ„CZNIE z realnych detekcji YOLO.
+            Buduje pts_bat i conf_bat WYŁĄCZNIE z realnych detekcji YOLO.
 
             detections_by_step:
                 [
@@ -2368,7 +2368,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
             worker_timing_log_interval_s = 4.0
             last_worker_timing_log_t = 0.0
 
-            # # kalibracja 3D Ĺ‚adujemy raz
+            # # kalibracja 3D ładujemy raz
             # try:
             #     (
             #         _cfg_json,
@@ -2456,7 +2456,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
 
                                     "avg_infer_ms": float(avg_infer_ms),
 
-                                    # stare pole zostawione dla kompatybilnoĹ›ci
+                                    # stare pole zostawione dla kompatybilności
                                     "fps": float(batches_per_sec),
 
                                     # nowe, czytelniejsze metryki
@@ -2845,7 +2845,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
             sleep_when_off_s = 0.05
             last_report_t = time.time()
 
-            # --- liczniki diagnostyczne caĹ‚kowite ---
+            # --- liczniki diagnostyczne całkowite ---
             batches_processed_total = 0
             frames_processed_total = 0
             frames_expected_total = 0
@@ -2859,7 +2859,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
             yolo_infer_count = 0
             yolo_batches = 0
 
-            # --- ostatnie znane wartoĹ›ci do raportowania, nawet gdy kolejka chwilowo pusta ---
+            # --- ostatnie znane wartości do raportowania, nawet gdy kolejka chwilowo pusta ---
             worker_timing_log_interval_s = 4.0
             last_worker_timing_log_t = 0.0
             last_batch_collect_ms = 0.0
@@ -3115,7 +3115,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                 yolo_batches = 0
                 last_report_t = now_ts
 
-            # # kalibracja 3D Ĺ‚adujemy raz
+            # # kalibracja 3D ładujemy raz
             # try:
             #     (
             #         _cfg_json,
@@ -3192,7 +3192,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                 expected_frames = len(frames_by_step) * len(roles_local)
                 frames_expected_total += int(expected_frames)
 
-                # domyĹ›lne wartoĹ›ci na wypadek bĹ‚ędu
+                # domyślne wartości na wypadek błędu
                 detections_by_step = []
                 infer_ms = 0.0
                 infer_ms_wall = 0.0
@@ -3446,7 +3446,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                 except Exception:
                     pass
 
-                # PeĹ‚ny trace per-step (dla porĂłwnaĹ„ caĹ‚ego okna bufora)
+                # Pełny trace per-step (dla porównań całego okna bufora)
                 try:
                     step_timings = {
                         "batch_collect_ms": float(batch_collect_ms),
@@ -3615,7 +3615,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
             for role in roles:
                 t = saver_threads.get(role)
                 if t is not None and t.is_alive():
-                    continue  # już dziaĹ‚a
+                    continue  # już działa
 
                 in_q = per_role_q.get(role)
                 if in_q is None:
@@ -3631,7 +3631,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                         roll_every=BIN_ROLL_EVERY,
                         recording_event=recording_event,
                         stop_evt=stop_evt,
-                        stats_q=stats_q,   # waĹĽne: statystyki trafiajÄ... tu
+                        stats_q=stats_q,   # ważne: statystyki trafiają tu
                     ),
                     daemon=True,
                     name=f"saver_{role}",
@@ -3641,7 +3641,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                 print(f"[SAVER] ▶️uruchomiono saver_worker dla {role}")
 
         def monitor_record_event():
-            """Czeka aĹĽ recording_event zostanie ustawiony i wtedy startuje savery."""
+            """Czeka aż recording_event zostanie ustawiony i wtedy startuje savery."""
             last_state = False
             while not stop_evt.is_set():
                 now = recording_event.is_set()
@@ -3651,7 +3651,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                 last_state = now
                 time.sleep(0.1)
 
-        # Start obserwatora nagrywania (osobny wÄ...tek, nie w liĹ›cie threads)
+        # Start obserwatora nagrywania (osobny wątek, nie w liście threads)
         threading.Thread(target=monitor_record_event, daemon=True).start()
         print("[MAIN] monitor_record_event uruchomiony")
         threading.Thread(
@@ -3765,14 +3765,14 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                             setattr(utils_config, "_MANAGER", manager)
                         shared_state["cam_status"] = manager.dict()
                     except Exception as e:
-                        print(f"[WATCHDOG] ⚠️ Nie udało się utworzyÄ‡ manager.dict(): {e}")
+                        print(f"[WATCHDOG] ⚠️ Nie udało się utworzyć manager.dict(): {e}")
                         shared_state["cam_status"] = {}
                 cam_status = shared_state.get("cam_status", {})
             except Exception as e:
                 print(f"[WATCHDOG] ⚠️ cam_status init fail: {e}")
                 cam_status = {}
 
-            # pamiętamy, które seriale byĹ‚y już zgubione
+            # pamiętamy, które seriale były już zgubione
             missing_serials = set()
             missing_counts = {}
             MISSING_THRESHOLD = 3
@@ -3780,11 +3780,11 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
             while not stop_evt.is_set():
                 time.sleep(CHECK_EVERY_S)
 
-                # 1) aktualna lista urzÄ...dzeĹ„
+                # 1) aktualna lista urządzeń
                 try:
                     devs_now = tl_local.EnumerateDevices()
                     if not devs_now:
-                        msg = "[WATCHDOG] ⚠️ EnumerateDevices zwrĂłciĹ‚o pustÄ... listę."
+                        msg = "[WATCHDOG] ⚠️ EnumerateDevices zwróciło pustą listę."
                         try:
                             stats_q.put(msg)
                         except Exception:
@@ -3805,7 +3805,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                     if not serial:
                         continue
 
-                    # --- SERIAL ZNIKNÄ„Ĺ Z SYSTEMU ---
+                    # --- SERIAL ZNIKNĄŁ Z SYSTEMU ---
                     if serial not in online_serials:
                         missing_counts[serial] = missing_counts.get(serial, 0) + 1
 
@@ -3935,9 +3935,9 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                         missing_serials.discard(serial)
                         missing_counts[serial] = 0
 
-                        # NIE ruszamy innych kamer — doĹ‚Ä...czamy tylko tę jednÄ...
+                        # NIE ruszamy innych kamer — dołączamy tylko tę jedną
                         if not wait_for_single_ptp_ready(new_cam, role, max_wait=20.0):
-                            raise RuntimeError(f"PTP nie ustabilizowaĹ‚o się dla kamery {role} po reconnect")
+                            raise RuntimeError(f"PTP nie ustabilizowało się dla kamery {role} po reconnect")
 
                         configure_periodic_signal_trigger(
                             new_cam,
@@ -3976,12 +3976,12 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                             th.start()
                             grabber_threads[role] = th
 
-                        msg = f"[WATCHDOG] ??? Kamera {role} (S/N {serial}) ponownie podĹ‚Ä...czona i uruchomiona."
+                        msg = f"[WATCHDOG] ??? Kamera {role} (S/N {serial}) ponownie podłączona i uruchomiona."
                         try:
                             stats_q.put(msg)
                         except Exception:
                             print(msg)
-                        # --- [NOWOĹšÄ†] Jeśli trwa nagrywanie, uruchom saver_worker_bin dla tej kamery ---
+                        # --- [NOWOŚĆ] Jeśli trwa nagrywanie, uruchom saver_worker_bin dla tej kamery ---
                         if recording_event.is_set():
                             try:
                                 from capture.grabber_module import saver_worker_bin
@@ -4007,7 +4007,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                                             recording_event=recording_event,
                                             stop_evt=stop_evt,
                                             stats_q=stats_q,
-                                            resume_dir=current_session,  # đź†•
+                                            resume_dir=current_session,  # 🆕
                                         ),
                                         daemon=True,
                                         name=f"saver_{role}_reconnected",
@@ -4021,7 +4021,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                                     except Exception:
                                         print(msg)
                             except Exception as e:
-                                msg = f"[WATCHDOG] ⚠️ Nie udało się wznowiÄ‡ saver_worker dla {role}: {e}"
+                                msg = f"[WATCHDOG] ⚠️ Nie udało się wznowić saver_worker dla {role}: {e}"
                                 try:
                                     stats_q.put(msg)
                                 except Exception:
@@ -4122,7 +4122,7 @@ def graceful_shutdown(cams=None, router_p=None, yolo_procs=None, sorter_p=None,
     except Exception:
         pass
 
-    # đźŽ¬ WyczyĹ›Ä‡ bufory przed zamknięciem
+    # 🎬 Wyczyść bufory przed zamknięciem
     try:
         from capture.grabber_module import cleanup_buffers
         cleanup_buffers()
@@ -4142,7 +4142,7 @@ def graceful_shutdown(cams=None, router_p=None, yolo_procs=None, sorter_p=None,
         if p and p not in process_list:
             try:
                 if hasattr(p, "is_alive") and p.is_alive():
-                    print(f"[SHUTDOWN] đź§© Terminating {name} (pid={p.pid})")
+                    print(f"[SHUTDOWN] 🧩 Terminating {name} (pid={p.pid})")
                     p.terminate()
                     p.join(timeout=2.0)
             except Exception as e:
@@ -4195,7 +4195,7 @@ def main():
     import signal
     mp.freeze_support()
 
-    # --- Manager i wspĂłlny stan ---
+    # --- Manager i wspólny stan ---
     manager = mp.Manager()
     setattr(utils_config, "_MANAGER", manager)
 
@@ -4318,11 +4318,11 @@ def main():
                     break
                 continue
 
-            # 2) PrzekaĹĽ do głównego GUI
+            # 2) Przekaż do głównego GUI
             try:
                 stats_q_gui.put_nowait(msg)
             except queue.Full:
-                # Jeśli peĹ‚na – zrzuÄ‡ najstarszÄ... i dopiero wstaw
+                # Jeśli pełna – zrzuć najstarszą i dopiero wstaw
                 try:
                     _ = stats_q_gui.get_nowait()
                     stats_q_gui.put_nowait(msg)
@@ -4331,11 +4331,11 @@ def main():
             except Exception:
                 pass
 
-            # 3) sprawdĹş stop_evt
+            # 3) sprawdź stop_evt
             if stop_evt.is_set():
                 break
 
-    # uruchomienie wÄ...tku
+    # uruchomienie wątku
     threading.Thread(target=copy_stats, daemon=True).start()
 
     print("[MAIN] Uruchamianie GUI i backendu...")
@@ -4382,7 +4382,7 @@ def main():
             pass
         simulate = True
 
-    # (Tylko jeśli sÄ... kamery) wybór/ładowanie ról
+    # (Tylko jeśli są kamery) wybór/ładowanie ról
     if not simulate:
         THIS_DIR = os.path.dirname(os.path.abspath(__file__))
         ROLES_PATH = os.path.join(THIS_DIR, "camera_roles.json")
@@ -4452,7 +4452,7 @@ def main():
     app.shared_state = shared_state
     app.after(50, app._wait_for_system_ready)
 
-    # Backend (wÄ...tek)
+    # Backend (wątek)
     from storage.shared_memory_manager import get_shared_memory_manager
     get_shared_memory_manager()
     archive_mgr = SessionArchiveManager()

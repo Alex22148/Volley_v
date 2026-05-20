@@ -67,15 +67,15 @@ def _fix_mojibake_text(value: str) -> str:
         "...": "...",
         "—": "-",
         "–": "-",
-        "Âµ": "µ",
-        "Â": "",
+        "µ": "µ",
+        "": "",
         "đź": "",
         "???": "[OK]",
-        "âťŚ": "[ERR]",
+        "❌": "[ERR]",
         "⚠️": "[WARN]",
-        "â„ąď¸Ź": "[INFO]",
-        "â–¶": "[START]",
-        "âŹą": "[STOP]",
+        "ℹ️": "[INFO]",
+        "▶": "[START]",
+        "⏹": "[STOP]",
     }
     for old, new in replacements.items():
         s = s.replace(old, new)

@@ -1,8 +1,8 @@
 ﻿#!/usr/bin/env python3
 """
 YOLO module dla VolleyHub
-- obsĹ‚uga batch 4x1
-- wejĹ›cie: raw Bayer RG8 albo gotowe BGR/RGB
+- obsługa batch 4x1
+- wejście: raw Bayer RG8 albo gotowe BGR/RGB
 - inferencja: Ultralytics YOLO na CPU/CUDA
 """
 
@@ -20,11 +20,11 @@ import torch
 try:
     from ultralytics import YOLO
     YOLO_AVAILABLE = True
-    print("[YOLO] ... Ultralytics YOLO dostÄ™pny")
+    print("[YOLO] ... Ultralytics YOLO dostępny")
 except ImportError:
     YOLO_AVAILABLE = False
     YOLO = None
-    print("[YOLO] âš ď¸Ź Ultralytics YOLO niedostÄ™pny - zainstaluj: pip install ultralytics")
+    print("[YOLO] ⚠️ Ultralytics YOLO niedostępny - zainstaluj: pip install ultralytics")
 
 
 SUPPORTED_BACKENDS = ("ultralytics", "tensorrt")
@@ -124,7 +124,7 @@ class VolleyHubYOLO:
 
     def _sync_model_runtime_device(self) -> None:
         """
-        WyrĂłwnuje urzÄ…dzenie/dtype dla wewnÄ™trznego moduĹ‚u torch (gdy backend to .pt).
+        Wyrównuje urządzenie/dtype dla wewnętrznego modułu torch (gdy backend to .pt).
         Dla ONNX/engine ta operacja bywa nieistotna i jest bezpiecznie ignorowana.
         """
         if self.model is None:
@@ -143,7 +143,7 @@ class VolleyHubYOLO:
                 else:
                     inner.float()
         except Exception as e:
-            self._log_throttled("runtime_sync_error", f"[YOLO] âš ď¸Ź Runtime device sync skipped: {e}", interval_s=6.0)
+            self._log_throttled("runtime_sync_error", f"[YOLO] ⚠️ Runtime device sync skipped: {e}", interval_s=6.0)
 
     # ===========================================================
     # Preprocessing
@@ -152,11 +152,11 @@ class VolleyHubYOLO:
     def set_batch_size(self, batch_size: int):
         """
         Ustawia chunk size dla inferencji YOLO:
-        ile obrazĂłw jednoczeĹ›nie trafia do modelu w jednym wywoĹ‚aniu.
+        ile obrazów jednocześnie trafia do modelu w jednym wywołaniu.
         """
         batch_size = max(1, min(64, int(batch_size)))
         self.batch_size = batch_size
-        print(f"[YOLO] đź“¦ Inference batch size: {self.batch_size}")
+        print(f"[YOLO] 📦 Inference batch size: {self.batch_size}")
 
     def _prepare_frame_for_yolo(self, frame: np.ndarray) -> np.ndarray:
         if frame is None:
@@ -192,7 +192,7 @@ class VolleyHubYOLO:
     def set_preprocess_backend(self, backend: str) -> bool:
         backend = str(backend or "").strip().lower()
         if backend not in ("cpu", "cuda"):
-            print(f"[YOLO] âš ď¸Ź Unsupported preprocess backend: {backend}")
+            print(f"[YOLO] ⚠️ Unsupported preprocess backend: {backend}")
             return False
 
         if backend == "cuda":
@@ -208,7 +208,7 @@ class VolleyHubYOLO:
     def set_bayer_pattern(self, pattern: str) -> bool:
         """
         Ustawia pattern Bayera.
-        ObsĹ‚ugiwane:
+        Obsługiwane:
         RG, BG, GR, GB
         """
         mapping = {
@@ -289,7 +289,7 @@ class VolleyHubYOLO:
     # ===========================================================
 
     def load_model(self, model_path: str = "best.pt") -> bool:
-        """Ĺaduje model YOLO"""
+        """Ładuje model YOLO"""
         if not YOLO_AVAILABLE:
             print("[YOLO] Ultralytics not available")
             return False
@@ -416,7 +416,7 @@ class VolleyHubYOLO:
         return self.load_model(model_path)
 
     def enable(self) -> bool:
-        """WĹ‚Ä…cza detekcjÄ™ YOLO"""
+        """Włącza detekcję YOLO"""
         if self.model is None:
             if not self.load_model():
                 return False
@@ -426,7 +426,7 @@ class VolleyHubYOLO:
         return True
 
     def disable(self):
-        """WyĹ‚Ä…cza detekcjÄ™ YOLO"""
+        """Wyłącza detekcję YOLO"""
         self.enabled = False
         self.detection_cache.clear()
         self.last_detections.clear()
@@ -715,7 +715,7 @@ class VolleyHubYOLO:
     def detect_ball_in_frame(self, frame: np.ndarray, role: str) -> List[Dict[str, Any]]:
         """
         Detekcja w pojedynczej klatce.
-        ObsĹ‚uguje teĹĽ raw Bayer RG8.
+        Obsługuje też raw Bayer RG8.
         """
         if not self.enabled or self.model is None:
             return []
@@ -848,7 +848,7 @@ class VolleyHubYOLO:
     # ===========================================================
 
     def _update_performance_stats(self, detection_time_ms: float):
-        """Aktualizuje statystyki wydajnoĹ›ci"""
+        """Aktualizuje statystyki wydajności"""
         try:
             self.detection_times.append(float(detection_time_ms))
             if len(self.detection_times) > self.max_time_samples:
@@ -862,7 +862,7 @@ class VolleyHubYOLO:
             pass
 
     def _send_performance_report(self):
-        """WysyĹ‚a raport wydajnoĹ›ci do stats_q, jeśli dostÄ™pne"""
+        """Wysyła raport wydajności do stats_q, jeśli dostępne"""
         if not self.detection_times:
             return
 
@@ -890,7 +890,7 @@ class VolleyHubYOLO:
             print(f"[YOLO]  Performance report error: {e}")
 
     def get_ball_positions(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Zwraca Ĺ›wieĹĽe pozycje piĹ‚ek"""
+        """Zwraca świeże pozycje piłek"""
         current_time = time.time()
         active_detections: Dict[str, List[Dict[str, Any]]] = {}
 
@@ -1022,7 +1022,7 @@ def build_3d_input_from_yolo_detections(
             if not dets:
                 continue
 
-            # sortowanie po confidence malejÄ…co
+            # sortowanie po confidence malejąco
             dets_sorted = sorted(
                 dets,
                 key=lambda d: float(d.get("confidence", 0.0)),
@@ -1034,7 +1034,7 @@ def build_3d_input_from_yolo_detections(
             for j in range(num_keep):
                 det = dets_sorted[j]
 
-                # uĹĽywamy Ĺ›rodka bboxa jako punktu 2D
+                # używamy środka bboxa jako punktu 2D
                 pts_bat[step_idx, cam_idx, j, 0] = float(det["center_x"])
                 pts_bat[step_idx, cam_idx, j, 1] = float(det["center_y"])
                 conf_bat[step_idx, cam_idx, j] = float(det["confidence"])

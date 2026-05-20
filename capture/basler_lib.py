@@ -55,18 +55,18 @@ def _get_ptp_status(cam):
 
 def get_gige_tl():
     """
-    Zwraca transport layer GigE, o ile wrapper pypylon go udostÄ™pnia.
+    Zwraca transport layer GigE, o ile wrapper pypylon go udostępnia.
     """
     tl_factory = pylon.TlFactory.GetInstance()
 
-    # najprostsza Ĺ›cieĹĽka: wrapper ma CreateTl
+    # najprostsza ścieżka: wrapper ma CreateTl
     for name in ("BaslerGigE", "GEV", "GigE"):
         try:
             return tl_factory.CreateTl(name)
         except Exception:
             pass
 
-    # fallback: jeśli wrapper nie wspiera CreateTl w ten sposĂłb
+    # fallback: jeśli wrapper nie wspiera CreateTl w ten sposób
     raise RuntimeError("Nie udało się uzyskać GigE transport layer z pypylon")
 
 def latch_timestamp_ns(cam) -> int:
@@ -91,7 +91,7 @@ def latch_timestamp_ns(cam) -> int:
         except Exception:
             pass
 
-    raise RuntimeError("Nie udaĹ‚o się odczytaÄ‡ timestamp latch z kamery")
+    raise RuntimeError("Nie udało się odczytać timestamp latch z kamery")
 
 
 def _set_value_if_exists(nm, name, value):
@@ -110,7 +110,7 @@ def _set_value_if_exists(nm, name, value):
 
 def configure_periodic_signal_trigger(cam, serial, period_us: float = 20000.0):
 
-    # 1. Upewnij się, ĹĽe nie grabujemy
+    # 1. Upewnij się, że nie grabujemy
     if cam.IsGrabbing():
         cam.StopGrabbing()
 
@@ -127,7 +127,7 @@ def configure_periodic_signal_trigger(cam, serial, period_us: float = 20000.0):
         except Exception:
             time.sleep(0.5)
 
-    # 4. Ustawienie parametrĂłw sygnaĹ‚u i aktywacja
+    # 4. Ustawienie parametrów sygnału i aktywacja
     try:
         cam.BslPeriodicSignalPeriod.SetValue(float(period_us))
         cam.BslPeriodicSignalDelay.SetValue(0.0)
@@ -257,7 +257,7 @@ def cam_config(serial: str, cam: pylon.InstantCamera, stats_q=None):
                 print(f"[{serial}] {alt}=ON")
                 break
 
-    # PTP wĹ‚Ä…czamy, ale gotowoĹ›Ä‡ sprawdzimy pĂłĹşniej zbiorczo
+    # PTP włączamy, ale gotowość sprawdzimy później zbiorczo
     ptp_ok = False
     for ptp_name in ("PtpEnable", "GevIEEE1588"):
         try:
@@ -301,7 +301,7 @@ def make_bgr_converter():
     return conv
 
 def ns_per_tick_for(cam) -> float:
-    """GigE: GevTimestampTickFrequency â†’ ns/tick; fallback 1.0."""
+    """GigE: GevTimestampTickFrequency → ns/tick; fallback 1.0."""
     try:
         freq = float(cam.GevTimestampTickFrequency.GetValue())
         if freq > 0:
@@ -311,7 +311,7 @@ def ns_per_tick_for(cam) -> float:
     return 1.0
 
 def write_binary_batch(file_path: str, frames: list[np.ndarray], frame_ids: list[int], timestamps: list[int]):
-    """Format rekordĂłw: <Q ts_ns><I frame_id><raw BGR bytes> * N (append)."""
+    """Format rekordów: <Q ts_ns><I frame_id><raw BGR bytes> * N (append)."""
     with open(file_path, "ab", buffering=0) as f:
         for i in range(len(frames)):
             f.write(struct.pack("<QI", int(timestamps[i]), int(frame_ids[i])))
@@ -329,30 +329,30 @@ def grab_ts_ns(gr, ns_per_tick: float) -> int:
 
 def grab_ts_ns_from_chunk(gr, ns_per_tick_fallback: float | None = None) -> int | None:
     """
-    SprĂłbuj odczytaÄ‡ hardware'owy ChunkTimestamp z GrabResult.
-    Zwraca ns (int) lub None gdy niedostÄ™pny.
+    Spróbuj odczytać hardware'owy ChunkTimestamp z GrabResult.
+    Zwraca ns (int) lub None gdy niedostępny.
     """
     ts_ns = None
     try:
-        # najproĹ›ciej: wiele modeli wystawia wĹ‚aĹ›ciwoĹ›Ä‡ bezpoĹ›rednio
+        # najprościej: wiele modeli wystawia właściwość bezpośrednio
         if hasattr(gr, "ChunkTimestamp"):
-            # bywa .Value lub bezpoĹ›rednio int; wspieramy oba warianty
+            # bywa .Value lub bezpośrednio int; wspieramy oba warianty
             val = getattr(gr, "ChunkTimestamp")
             ts = int(val.Value if hasattr(val, "Value") else int(val))
-            # Niektóre kamery zwracajÄ… ticki â€“ jeśli znasz ns_per_tick, przelicz:
+            # Niektóre kamery zwracają ticki – jeśli znasz ns_per_tick, przelicz:
             if ns_per_tick_fallback and ts < 1e12:
                 ts_ns = int(ts * ns_per_tick_fallback)
             else:
-                # czÄ™Ĺ›Ä‡ kamer zwraca już ns â€“ zwykle wielkoĹ›ci 1e18 to przesada; wyczuj skalÄ™
+                # część kamer zwraca już ns – zwykle wielkości 1e18 to przesada; wyczuj skalę
                 ts_ns = int(ts)
             return ts_ns
     except Exception:
         pass
 
-    # Alternatywa: node map chunkĂłw
+    # Alternatywa: node map chunków
     try:
         node_map = gr.GetChunkDataNodeMap()
-        # W API pypylon czÄ™sto wystarczy tak:
+        # W API pypylon często wystarczy tak:
         n = node_map.GetNode("ChunkTimestamp")
         if n and n.IsReadable():
             ts = int(n.GetValue())
@@ -411,7 +411,7 @@ def init_all_cameras():
     if not cams:
         raise RuntimeError("nie udało się skonfigurować żadnej kamery")
 
-    # 1. poczekaj na peĹ‚ne PTP po otwarciu wszystkich kamer
+    # 1. poczekaj na pełne PTP po otwarciu wszystkich kamer
     if not wait_for_all_ptp_ready(cams, max_wait=30):
         print("[INIT] PTP nie ustabilizował na wszystkich kamerach")
     return cams, roles

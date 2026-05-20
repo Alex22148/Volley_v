@@ -7,8 +7,8 @@ import time
 
 # ----------------------------- static config (no argparse)
 # Preset:
-#   "smoke"   -> check_env + benchmark + report
-#   "full"    -> check_env + export + benchmark + report
+#   "smoke"   -> check_env + benchmark + compare + report
+#   "full"    -> check_env + export + benchmark + compare + report
 #   "custom"  -> użyj flag RUN_*
 PIPELINE_MODE = "smoke"
 
@@ -16,6 +16,7 @@ RUN_CHECK_ENV = True
 RUN_EXPORT_STATIC = False
 RUN_EXPORT_INT8 = False
 RUN_BENCHMARK = True
+RUN_COMPARE_BACKENDS = True
 RUN_REPORT = True
 
 
@@ -39,18 +40,21 @@ def main() -> int:
         do_export = False
         do_export_int8 = False
         do_benchmark = True
+        do_compare = True
         do_report = True
     elif PIPELINE_MODE == "full":
         do_check_env = True
         do_export = True
         do_export_int8 = False
         do_benchmark = True
+        do_compare = True
         do_report = True
     else:
         do_check_env = bool(RUN_CHECK_ENV)
         do_export = bool(RUN_EXPORT_STATIC)
         do_export_int8 = bool(RUN_EXPORT_INT8)
         do_benchmark = bool(RUN_BENCHMARK)
+        do_compare = bool(RUN_COMPARE_BACKENDS)
         do_report = bool(RUN_REPORT)
 
     steps: list[tuple[str, list[str], bool]] = []
@@ -65,6 +69,8 @@ def main() -> int:
         )
     if do_benchmark:
         steps.append(("benchmark_08", [py, str(scripts_dir / "08_final_benchmark.py")], False))
+    if do_compare:
+        steps.append(("compare_10", [py, str(scripts_dir / "10_compare_pt_onnx_engine_detections.py")], False))
     if do_report:
         steps.append(("report_09", [py, str(scripts_dir / "09_make_final_report.py")], False))
 

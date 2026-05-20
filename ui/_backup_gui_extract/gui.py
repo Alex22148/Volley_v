@@ -84,15 +84,15 @@ def _fix_mojibake_text(value: str) -> str:
         "...": "...",
         "—": "-",
         "–": "-",
-        "Âµ": "µ",
-        "Â": "",
+        "µ": "µ",
+        "": "",
         "đź": "",
         "???": "[OK]",
-        "âťŚ": "[ERR]",
+        "❌": "[ERR]",
         "⚠️": "[WARN]",
-        "â„ąď¸Ź": "[INFO]",
-        "â–¶": "[START]",
-        "âŹą": "[STOP]",
+        "ℹ️": "[INFO]",
+        "▶": "[START]",
+        "⏹": "[STOP]",
     }
     for old, new in replacements.items():
         s = s.replace(old, new)
@@ -255,7 +255,7 @@ class CaptureGUI(ctk.CTk):
         self.overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
         self.remote_url_var = ctk.StringVar(value="Remote: OFF")
 
-        self.load_label = ctk.CTkLabel(self.overlay, text=""🔧 Uruchamianie systemu...",
+        self.load_label = ctk.CTkLabel(self.overlay, text="🔧 Uruchamianie systemu...",
                                        text_color=ACCENT, font=(FONT_FAMILY, 26, "bold"))
         self.load_label.pack(pady=(300, 10))
 
@@ -594,7 +594,7 @@ class CaptureGUI(ctk.CTk):
 
         self.btn_choose_folder = self._make_btn(
             path_frame,
-            "đź“ Zmień folder",
+            "📁 Zmień folder",
             self.on_choose_raw,
             ACCENT,
         )
@@ -727,7 +727,7 @@ class CaptureGUI(ctk.CTk):
         
         self.yolo_model_btn = ctk.CTkButton(
             model_btn_frame,
-            text="đź“ Wybierz model (.pt)",
+            text="📁 Wybierz model (.pt)",
             fg_color="#6A5ACD",
             hover_color="#5A4FCF",
             text_color="#FFFFFF",
@@ -1062,7 +1062,7 @@ class CaptureGUI(ctk.CTk):
         self.ab_models_dir_btn = None  # set below when button is created
         ctk.CTkButton(
             row_models,
-            text="đź“",
+            text="📁",
             width=34,
             height=24,
             command=self._choose_auto_bench_models_dir,
@@ -2783,7 +2783,7 @@ class CaptureGUI(ctk.CTk):
         top.grid_columnconfigure((0, 1, 2), weight=1)
         ctk.CTkButton(top, text="⚡ Quick Test", command=lambda: self._run_benchmark_preset("quick")).grid(row=0, column=0, sticky="ew", padx=6, pady=8)
         ctk.CTkButton(top, text="📊 Full Benchmark", command=lambda: self._run_benchmark_preset("full")).grid(row=0, column=1, sticky="ew", padx=6, pady=8)
-        ctk.CTkButton(top, text=""🔧 Advanced", command=lambda: tabs.set("Advanced")).grid(row=0, column=2, sticky="ew", padx=6, pady=8)
+        ctk.CTkButton(top, text="🔧 Advanced", command=lambda: tabs.set("Advanced")).grid(row=0, column=2, sticky="ew", padx=6, pady=8)
 
         tabs = ctk.CTkTabview(win)
         tabs.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
@@ -3108,6 +3108,23 @@ class CaptureGUI(ctk.CTk):
             parent=self,
             roles=self.roles,
             yolo_vis_q=self.yolo_vis_q,
+            stats_q=self.stats_q,
+        )
+
+    def open_trajectory_window(self):
+        if getattr(self, "trajectory_window", None) is not None:
+            try:
+                if self.trajectory_window.winfo_exists():
+                    self.trajectory_window.lift()
+                    self.trajectory_window.focus_force()
+                    return
+            except Exception:
+                pass
+
+        self.trajectory_window = TrajectoryWindow(
+            parent=self,
+            roles=self.roles,
+            yolo_vis_q=getattr(self, "yolo_vis_q", None),
             stats_q=self.stats_q,
         )
 
@@ -5638,7 +5655,7 @@ class CaptureGUI(ctk.CTk):
                 s["exp_val"].configure(text=f"{float(value):.0f} µs")
             if s and "exp_entry" in s:
                 s["exp_entry"].delete(0, "end"); s["exp_entry"].insert(0, f"{int(float(value))}")
-            self._set_status(f"â€️ {role}: {float(value):.0f} µs", "accent")
+            self._set_status(f"☀️ {role}: {float(value):.0f} µs", "accent")
         except Exception as e:
             print(f"[GUI][ERROR] on_expo_change({role}) → {e}")
 

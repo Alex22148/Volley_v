@@ -2,3 +2,11 @@
 /new_res/
 *.zip
 *.7z
+/artifacts/
+/dist/fastpath_lab_benchmark/fast_path_v1/engines/engines/
+/dist/fastpath_lab_benchmark/fast_path_v1/engines/onnx/
+/dist/fastpath_lab_benchmark.zip
+/dist/engines/
+/dist/fastpath_lab_benchmark/engines/
+/dist/fastpath_lab_benchmark/fast_path_v1/reports/
+/dist/fastpath_lab_benchmark/fast_path_v1/engines/

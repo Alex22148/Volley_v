@@ -107,7 +107,7 @@ class TrajectoryWindow(ctk.CTkToplevel):
             batches = list(self.history[role])
             if not batches:
                 ax.set_xlim(0, default_w)
-                ax.set_ylim(default_h, 0)   # odwrĂłcona Y
+                ax.set_ylim(default_h, 0)   # odwrócona Y
                 continue
 
             all_x = []
@@ -126,7 +126,7 @@ class TrajectoryWindow(ctk.CTkToplevel):
                 all_x.extend(xs)
                 all_y.extend(ys)
 
-                # starsze batch'e cieĹ„sze, nowsze wyraĹşniejsze
+                # starsze batch'e cieńsze, nowsze wyraźniejsze
                 lw = 0.8 if i < len(batches) - 1 else 1.8
 
                 ax.plot(xs, ys, linewidth=lw, color=color)
@@ -143,7 +143,7 @@ class TrajectoryWindow(ctk.CTkToplevel):
                 pad_y = max(10, int((ymax - ymin) * 0.2) if ymax > ymin else 20)
 
                 ax.set_xlim(xmin - pad_x, xmax + pad_x)
-                ax.set_ylim(ymax + pad_y, ymin - pad_y)  # odwrĂłcona Y
+                ax.set_ylim(ymax + pad_y, ymin - pad_y)  # odwrócona Y
             else:
                 ax.set_xlim(0, default_w)
                 ax.set_ylim(default_h, 0)

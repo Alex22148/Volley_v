@@ -1,0 +1,459 @@
+{
+  "saved_at_epoch_ns": 1779181536302846100,
+  "device": 0,
+  "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+  "variants": {
+    "inputs_matrix": {
+      "v640": [
+        [
+          640,
+          640
+        ],
+        [
+          4,
+          8,
+          12,
+          16,
+          24,
+          32,
+          64
+        ]
+      ],
+      "v960": [
+        [
+          960,
+          960
+        ],
+        [
+          4,
+          8,
+          12,
+          16,
+          24,
+          32,
+          64
+        ]
+      ],
+      "v1088x1920": [
+        [
+          1088,
+          1920
+        ],
+        [
+          4,
+          8,
+          12,
+          16,
+          20,
+          24
+        ]
+      ]
+    },
+    "precision": "fp16",
+    "dynamic": false,
+    "mode": "static",
+    "workspace_gb": 2
+  },
+  "results": [
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v640_b4",
+      "imgsz": [
+        640,
+        640
+      ],
+      "batch": 4,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v640_b4.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v640_b4.engine",
+      "elapsed_s": 0.0001295000001846347,
+      "error": "skipped_existing"
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v640_b8",
+      "imgsz": [
+        640,
+        640
+      ],
+      "batch": 8,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v640_b8.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v640_b8.engine",
+      "elapsed_s": 5.340000006981427e-05,
+      "error": "skipped_existing"
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v640_b12",
+      "imgsz": [
+        640,
+        640
+      ],
+      "batch": 12,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v640_b12.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v640_b12.engine",
+      "elapsed_s": 4.469999930734048e-05,
+      "error": "skipped_existing"
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v640_b16",
+      "imgsz": [
+        640,
+        640
+      ],
+      "batch": 16,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v640_b16.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v640_b16.engine",
+      "elapsed_s": 4.129999979340937e-05,
+      "error": "skipped_existing"
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v640_b24",
+      "imgsz": [
+        640,
+        640
+      ],
+      "batch": 24,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v640_b24.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v640_b24.engine",
+      "elapsed_s": 4.0800000533636194e-05,
+      "error": "skipped_existing"
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v640_b32",
+      "imgsz": [
+        640,
+        640
+      ],
+      "batch": 32,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": false,
+      "engine_saved": true,
+      "onnx_path": "",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v640_b32.engine",
+      "elapsed_s": 6.320000011328375e-05,
+      "error": "skipped_existing"
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v640_b64",
+      "imgsz": [
+        640,
+        640
+      ],
+      "batch": 64,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": false,
+      "engine_saved": true,
+      "onnx_path": "",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v640_b64.engine",
+      "elapsed_s": 28.39338680000037,
+      "error": ""
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v960_b4",
+      "imgsz": [
+        960,
+        960
+      ],
+      "batch": 4,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v960_b4.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v960_b4.engine",
+      "elapsed_s": 20.108880099999624,
+      "error": ""
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v960_b8",
+      "imgsz": [
+        960,
+        960
+      ],
+      "batch": 8,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v960_b8.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v960_b8.engine",
+      "elapsed_s": 21.487431900000047,
+      "error": ""
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v960_b12",
+      "imgsz": [
+        960,
+        960
+      ],
+      "batch": 12,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v960_b12.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v960_b12.engine",
+      "elapsed_s": 22.568663500000184,
+      "error": ""
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v960_b16",
+      "imgsz": [
+        960,
+        960
+      ],
+      "batch": 16,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v960_b16.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v960_b16.engine",
+      "elapsed_s": 24.234612799999923,
+      "error": ""
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v960_b24",
+      "imgsz": [
+        960,
+        960
+      ],
+      "batch": 24,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v960_b24.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v960_b24.engine",
+      "elapsed_s": 25.9831365,
+      "error": ""
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v960_b32",
+      "imgsz": [
+        960,
+        960
+      ],
+      "batch": 32,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": false,
+      "engine_saved": true,
+      "onnx_path": "",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v960_b32.engine",
+      "elapsed_s": 27.627484200000254,
+      "error": ""
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v960_b64",
+      "imgsz": [
+        960,
+        960
+      ],
+      "batch": 64,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": false,
+      "engine_saved": false,
+      "onnx_path": "",
+      "engine_path": "",
+      "elapsed_s": 33.0078053999996,
+      "error": "RuntimeError: TensorRT engine build failed, check logs for errors"
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v1088x1920_b4",
+      "imgsz": [
+        1088,
+        1920
+      ],
+      "batch": 4,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v1088x1920_b4.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v1088x1920_b4.engine",
+      "elapsed_s": 22.084675099999913,
+      "error": ""
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v1088x1920_b8",
+      "imgsz": [
+        1088,
+        1920
+      ],
+      "batch": 8,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v1088x1920_b8.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v1088x1920_b8.engine",
+      "elapsed_s": 25.70847859999958,
+      "error": ""
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v1088x1920_b12",
+      "imgsz": [
+        1088,
+        1920
+      ],
+      "batch": 12,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v1088x1920_b12.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v1088x1920_b12.engine",
+      "elapsed_s": 27.69616980000046,
+      "error": ""
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v1088x1920_b16",
+      "imgsz": [
+        1088,
+        1920
+      ],
+      "batch": 16,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v1088x1920_b16.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v1088x1920_b16.engine",
+      "elapsed_s": 30.133107600000585,
+      "error": ""
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v1088x1920_b20",
+      "imgsz": [
+        1088,
+        1920
+      ],
+      "batch": 20,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v1088x1920_b20.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v1088x1920_b20.engine",
+      "elapsed_s": 32.359706899999765,
+      "error": ""
+    },
+    {
+      "source_pt": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\model_base\\best.pt",
+      "config_name": "fp16_v1088x1920_b24",
+      "imgsz": [
+        1088,
+        1920
+      ],
+      "batch": 24,
+      "half": true,
+      "dynamic": false,
+      "simplify": true,
+      "workspace": 2,
+      "int8": false,
+      "onnx_saved": true,
+      "engine_saved": true,
+      "onnx_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\onnx\\best__fp16_v1088x1920_b24.onnx",
+      "engine_path": "C:\\Users\\UGB_a\\PycharmProjects\\VolleyHub_enterprice\\dist\\fastpath_lab_benchmark\\fast_path_v1\\engines\\static\\best__fp16_v1088x1920_b24.engine",
+      "elapsed_s": 34.260006299999986,
+      "error": ""
+    }
+  ]
+}

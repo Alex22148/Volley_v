@@ -15,22 +15,22 @@ class FpsLimiter:
         self.dt = 1.0 / self.fps
 
     def allow(self, now):
-        """Zwraca True jeśli wolno wypuĹ›ciÄ‡ nastÄ™pnÄ… klatkÄ™.
-           Ustawia nastÄ™pne 'okno czasowe' z kompensacjÄ… zalegĹ‚oĹ›ci."""
+        """Zwraca True jeśli wolno wypuścić następną klatkę.
+           Ustawia następne 'okno czasowe' z kompensacją zaległości."""
         if self._next is None:
             self._next = now
         if now + 1e-9 >= self._next:
-            # jeśli jesteĹ›my spĂłĹşnieni, doskocz do najbliĹĽszego slotu w przyszĹ‚oĹ›ci
+            # jeśli jesteśmy spóźnieni, doskocz do najbliższego slotu w przyszłości
             missed = int((now - self._next) // self.dt)
             self._next = (self._next + (missed + 1) * self.dt)
             return True
         return False
 
     def sleep_until_next(self, now, max_sleep=0.01):
-        """Opcjonalny, lekki sen do nastÄ™pnego slotu."""
+        """Opcjonalny, lekki sen do następnego slotu."""
         t = self._next - now if self._next is not None else 0.0
         if t > 0:
-            # na Windows 10 sensownie trzymaÄ‡ max ~10ms
+            # na Windows 10 sensownie trzymać max ~10ms
             import time
             time.sleep(min(t, max_sleep))
 
@@ -54,15 +54,15 @@ def universal_color_processor(raw_bayer_q,
                               remote_evt=None,
                               shared_state=None):
     """
-    WejĹ›cie:
+    Wejście:
         raw_bayer_q: kolejka z krotkami (role, bayer_key, ts_ns)
                      bayer_key to klucz do ramki BayerRG8 w SharedMemoryManager.
 
-    WyjĹ›cia (poprzez output_queues):
+    Wyjścia (poprzez output_queues):
         {
             "preview": {role: Queue} LUB Queue z krotkami (role, shm_key, ts_ns),
             "zoom":    Queue z krotkami (role, frame_bgr, ts_ns),
-            # remote uĹĽywa shared_state["current_key"] / ["full_key"]
+            # remote używa shared_state["current_key"] / ["full_key"]
         }
 
     Konfiguracja:
@@ -91,7 +91,7 @@ def universal_color_processor(raw_bayer_q,
     def bayer_to_bgr(bayer_rg8: np.ndarray) -> np.ndarray:
         """
         Demosaik BayerRG8 -> BGR8.
-        1) prĂłbujemy PYLON
+        1) próbujemy PYLON
         2) fallback: OpenCV (cv2.COLOR_BayerRG2BGR)
         3) ostatecznie: 3x szary
         """
@@ -121,11 +121,11 @@ def universal_color_processor(raw_bayer_q,
                     bayer_rg8 = bayer_rg8[:, :, 0]
                 return cv2.cvtColor(bayer_rg8, cv2.COLOR_BayerRG2BGR)
             except Exception as e2:
-                # ostatecznie: 3x szary, ĹĽeby GUI nie padĹ‚o
+                # ostatecznie: 3x szary, żeby GUI nie padło
                 return np.repeat(bayer_rg8[..., None], 3, axis=2)
 
 
-    # ---------- lokalny resize (jeśli chcesz bez cv2, moĹĽesz uĹĽyÄ‡ NN) ----------
+    # ---------- lokalny resize (jeśli chcesz bez cv2, możesz użyć NN) ----------
     def resize_rgb_nn(img: np.ndarray, new_w: int, new_h: int) -> np.ndarray:
         """Nearest-neighbour dla RGB/BGR; szybki i prosty."""
         h, w = img.shape[:2]
@@ -184,14 +184,14 @@ def universal_color_processor(raw_bayer_q,
     prev_limiters, rem_limiters,  = {}, {}
     cnt_prev, cnt_rem = {}, {}
 
-    # PrzekaĹĽ stats_q do YOLO dla raportĂłw wydajnoĹ›ci
+    # Przekaż stats_q do YOLO dla raportów wydajności
     try:
         import core.utils_config as utils_config
         utils_config.stats_q = stats_q
     except Exception:
         pass
     
-    # shared_state: minimalne odĹ›wieĹĽanie kluczy (WebRTC)
+    # shared_state: minimalne odświeżanie kluczy (WebRTC)
     shared_min_dt = 0.05
     last_shared_ts = 0.0
     last_current_key, last_full_key = {}, {}
@@ -268,7 +268,7 @@ def universal_color_processor(raw_bayer_q,
         except Exception:
             zoom_active = False
 
-        # --- REMOTE: globalny przeĹ‚Ä…cznik + selected_role ---
+        # --- REMOTE: globalny przełącznik + selected_role ---
         try:
             if remote_evt is not None:
                 remote_active = remote_evt.is_set()
@@ -285,7 +285,7 @@ def universal_color_processor(raw_bayer_q,
             except Exception:
                 selected_role = None
 
-        # --- REMOTE: globalny przeĹ‚Ä…cznik + selected_role ---
+        # --- REMOTE: globalny przełącznik + selected_role ---
         try:
             if remote_evt is not None:
                 remote_active = remote_evt.is_set()
@@ -335,7 +335,7 @@ def universal_color_processor(raw_bayer_q,
 
         try:
             if allow_prev:
-                # UĹĽyj klatki z adnotacjami YOLO jeśli dostÄ™pna, inaczej oryginalna
+                # Użyj klatki z adnotacjami YOLO jeśli dostępna, inaczej oryginalna
                 base_prev = col_bgr
                 
                 # # Convert to RGB if needed
@@ -381,7 +381,7 @@ def universal_color_processor(raw_bayer_q,
         except Exception as e:
             print(f"[UNIVERSAL-PROC] preview error for {role}: {e}")
 
-        # 5) ZOOM â€“ uĹĽywa cached_bgr (bez ponownego demosaiku)
+        # 5) ZOOM – używa cached_bgr (bez ponownego demosaiku)
         try:
             if zoom_active and output_queues.get("zoom"):
                 qz = output_queues["zoom"]
@@ -404,7 +404,7 @@ def universal_color_processor(raw_bayer_q,
                 # respektuj color_format z cfg_rem
                 rem_color_format = str(cfg_rem.get("color_format", "BGR")).upper()
 
-                base_rem = col_bgr  # domyĹ›lnie BGR
+                base_rem = col_bgr  # domyślnie BGR
                 if rem_color_format == "RGB":
                     # leniwe BGR->RGB tylko jeśli faktycznie potrzebne
                     if col_rgb is None:

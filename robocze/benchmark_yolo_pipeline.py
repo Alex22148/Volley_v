@@ -169,8 +169,8 @@ def run_single_case(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="VolleyHub isolated benchmark")
-    parser.add_argument("--images-dir", type=str, required=True, help="Folder ze zdjÄ™ciami testowymi")
-    parser.add_argument("--model", type=str, default="best.pt", help="ĹšcieĹĽka do modelu (.pt/.onnx/.engine)")
+    parser.add_argument("--images-dir", type=str, required=True, help="Folder ze zdjęciami testowymi")
+    parser.add_argument("--model", type=str, default="best.pt", help="Ścieżka do modelu (.pt/.onnx/.engine)")
     parser.add_argument("--backend", type=str, default="ultralytics", choices=["ultralytics", "tensorrt"])
     parser.add_argument("--trt-engine", type=str, default="", help="Path to .engine for backend=tensorrt")
     parser.add_argument("--trt-dynamic", action="store_true")
@@ -215,7 +215,7 @@ def main() -> int:
 
     files = list_images(images_dir, exts)
     if not files:
-        raise RuntimeError(f"Brak obrazĂłw wejĹ›ciowych w: {images_dir}")
+        raise RuntimeError(f"Brak obrazów wejściowych w: {images_dir}")
     if args.max_images > 0:
         files = files[: args.max_images]
 
@@ -225,24 +225,24 @@ def main() -> int:
         if img is not None:
             base_frames.append(img)
     if not base_frames:
-        raise RuntimeError("Nie udaĹ‚o się wczytaÄ‡ ĹĽadnego obrazu.")
+        raise RuntimeError("Nie udało się wczytać żadnego obrazu.")
 
     yolo = VolleyHubYOLO()
     if not yolo.set_backend(args.backend):
-        raise RuntimeError(f"Nie udaĹ‚o się ustawiÄ‡ backend={args.backend}")
+        raise RuntimeError(f"Nie udało się ustawić backend={args.backend}")
     yolo.configure_tensorrt(dynamic=args.trt_dynamic, workspace_gb=args.trt_workspace_gb)
     if args.trt_engine:
         if not yolo.set_tensorrt_engine(args.trt_engine):
-            raise RuntimeError(f"Nie udaĹ‚o się ustawiÄ‡ TensorRT engine: {args.trt_engine}")
+            raise RuntimeError(f"Nie udało się ustawić TensorRT engine: {args.trt_engine}")
     if args.device != "auto":
         if not yolo.set_device(args.device):
-            raise RuntimeError(f"Nie udaĹ‚o się ustawiÄ‡ device={args.device}")
+            raise RuntimeError(f"Nie udało się ustawić device={args.device}")
     yolo.set_confidence_threshold(args.conf_threshold)
     yolo.ball_class_id = int(args.ball_class_id)
     if not yolo.load_custom_model(str(model_path)):
-        raise RuntimeError("Nie udaĹ‚o się zaĹ‚adowaÄ‡ modelu.")
+        raise RuntimeError("Nie udało się załadować modelu.")
     if not yolo.enable():
-        raise RuntimeError("Nie udaĹ‚o się wĹ‚Ä…czyÄ‡ YOLO.")
+        raise RuntimeError("Nie udało się włączyć YOLO.")
 
     grid = {
         "models": [str(model_path)],

@@ -20,10 +20,10 @@ ROLES = ["CENTER_L", "CENTER_R", "LEFT", "RIGHT"]
 import os, sys
 
 if getattr(sys, 'frozen', False):
-    # š€ Aplikacja dziaĹ‚a jako .exe (PyInstaller)
+    # š€ Aplikacja działa jako .exe (PyInstaller)
     # Folder z plikiem EXE
     EXE_DIR = os.path.dirname(sys.executable)
-    # Folder tymczasowy, w ktĂłrym PyInstaller rozpakowuje zasoby (np. layout.png)
+    # Folder tymczasowy, w którym PyInstaller rozpakowuje zasoby (np. layout.png)
     BASE_DIR = sys._MEIPASS
 else:
     # Ť Tryb deweloperski (.py)
@@ -34,7 +34,7 @@ else:
 DEFAULT_JSON_PATH = os.path.join(EXE_DIR, "camera_roles.json")
 print(DEFAULT_JSON_PATH)
 
-# ”ą layout.png wczytujemy z zasobĂłw (czyli z folderu doĹ‚Ä...czonego w PyInstaller)
+# ”ą layout.png wczytujemy z zasobów (czyli z folderu dołączonego w PyInstaller)
 LAYOUT_PATH = os.path.join(BASE_DIR, "images//layout.png")
 
 ROLE_POS_1280x720 = {
@@ -90,7 +90,7 @@ def load_existing_mapping(path):
 ROLES = ["CENTER_L", "CENTER_R", "LEFT", "RIGHT"]
 
 def save_mapping(path: str, role_to_serial: Dict[str, Optional[str]]) -> None:
-    """Zapisuje w formacie listy obiektĂłw {serial, role} z zachowaniem kolejnoĹ›ci ROLES."""
+    """Zapisuje w formacie listy obiektów {serial, role} z zachowaniem kolejności ROLES."""
     out = []
     for role in ROLES:
         serial = role_to_serial.get(role)
@@ -129,7 +129,7 @@ class AssignRolesApp(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        # --- GĂ“RNY PANEL ---
+        # --- GÓRNY PANEL ---
         top = ctk.CTkFrame(self, fg_color="#FFFFFF", corner_radius=12)
         top.grid(row=0, column=0, sticky="ew", padx=15, pady=(10, 4))
         for i in range(len(ROLES)):
@@ -256,7 +256,7 @@ class AssignRolesApp(ctk.CTk):
         self._tk_img = ImageTk.PhotoImage(img)
         self.canvas.create_image(ox, oy, image=self._tk_img, anchor="nw")
 
-        # Przeskaluj markery + uwzglÄ™dnij offset
+        # Przeskaluj markery + uwzględnij offset
         scaled = scale_role_positions(nw, nh)
         r = max(8, int(MARKER_RADIUS * min(nw / 1280, nh / 720)))
 
@@ -291,9 +291,9 @@ def ask_camera_roles_gui() -> str:
     """
     Nowoczesne CTk okno z fade-in i fade-out.
     Zwraca:
-        "assign"   â†’ otwĂłrz przypisywanie kamer
-        "existing" â†’ użyj istniejÄ...cego pliku
-        "cancel"   â†’ zakoĹ„cz program
+        "assign"   → otwórz przypisywanie kamer
+        "existing" → użyj istniejącego pliku
+        "cancel"   → zakończ program
     """
     popup = ctk.CTk()
     popup.title("VolleyHub ˘ Camera Roles Setup")
@@ -399,17 +399,17 @@ def ask_camera_roles_gui() -> str:
     return result["choice"]
 
 # ===========================================================
-# === FUNKCJA URUCHAMIAJÄ„CA GUI Z MAIN.PY ===================
+# === FUNKCJA URUCHAMIAJĄCA GUI Z MAIN.PY ===================
 # ===========================================================
 
 # ===========================================================
-# === FUNKCJA URUCHAMIAJÄ„CA Z MAIN.PY =======================
+# === FUNKCJA URUCHAMIAJĄCA Z MAIN.PY =======================
 # ===========================================================
 
 def run_assign_gui():
     """
     Uruchamia okno przypisywania ról kamer (Assign GUI)
-    bez otwierania nowego procesu. DziaĹ‚a zarĂłwno w .py, jak i .exe.
+    bez otwierania nowego procesu. Działa zarówno w .py, jak i .exe.
     """
     import tkinter as tk
 
@@ -422,7 +422,7 @@ def run_assign_gui():
         print(f"[ASSIGN]  Błąd podczas uruchamiania assign GUI: {e}")
         choice = "cancel"
 
-    # §ą Zamknij domyĹ›lnego roota (jeśli zostaĹ‚)
+    # §ą Zamknij domyślnego roota (jeśli został)
     try:
         root = tk._default_root
         if root:

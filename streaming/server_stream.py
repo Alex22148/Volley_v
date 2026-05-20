@@ -21,7 +21,7 @@ _current_frame_key = None      # -> manager.dict()
 _shared_state = None           # -> manager.dict() z maina (opcjonalnie)
 pcs = set()
 _webrtc_proc = None
-# na gĂłrze pliku
+# na górze pliku
 _control_q = None
 
 # ----------------------------
@@ -71,7 +71,7 @@ def _get_host_ip(
                 ip = s.getsockname()[0]
                 s.close()
                 if verbose:
-                    print(f"[REMOTE] đźŚ Wybrano przez routing: {ip}")
+                    print(f"[REMOTE] 🚀 Wybrano przez routing: {ip}")
                 return ip
             except Exception:
                 continue
@@ -85,7 +85,7 @@ def _get_host_ip(
         return best["ip"]
     else:
         if verbose:
-            print(f"[REMOTE] âš ď¸Ź Brak dopasowania RFC1918 - uĹĽywam {best['ip']} z '{best['iface']}'")
+            print(f"[REMOTE] ⚠️ Brak dopasowania RFC1918 - używam {best['ip']} z '{best['iface']}'")
         return best["ip"]
 
 # ----------------------------
@@ -99,7 +99,7 @@ def init_shared(manager=None, shared_state=None):
 
     if shared_state is not None:
         _shared_state = shared_state
-        # â¬‡â¬‡â¬‡  KLUCZOWE: jeden sĹ‚ownik wspĂłĹ‚dzielony dla klucza ramki
+        # ⬇⬇⬇  KLUCZOWE: jeden słownik współdzielony dla klucza ramki
         ck = _shared_state.get("current_key")
         if ck is None:
             ck = _manager.dict()
@@ -119,7 +119,7 @@ def init_shared(manager=None, shared_state=None):
 
 
 # ----------------------------
-#  API dla innych moduĹ‚Ăłw
+#  API dla innych modułów
 # ----------------------------
 def set_selected_role(role: str):
     if _selected_role is not None:
@@ -130,7 +130,7 @@ def get_selected_role() -> str:
 
 def webrtc_set_current_key(role: str, key: str):
     """
-    Zapisz ostatni klucz ramki w shared dict â€“ bÄ™dzie czytany przez WebRTC track.
+    Zapisz ostatni klucz ramki w shared dict – będzie czytany przez WebRTC track.
     Tylko jeśli to jest aktualnie wybrana rola.
     """
     if _current_frame_key is not None and role == get_selected_role():
@@ -161,20 +161,20 @@ def _get_current_key_from_shared(role: str):
 class BaslerTrack(VideoStreamTrack):
     def __init__(self):
         super().__init__()
-        # import tutaj, ĹĽeby uniknÄ…Ä‡ ciÄ™ĹĽkich importĂłw przy imporcie moduĹ‚u
+        # import tutaj, żeby uniknąć ciężkich importów przy imporcie modułu
         from storage.shared_memory_manager import get_shared_memory_manager
         self.smm = get_shared_memory_manager()
 
     async def recv(self):
         pts, tb = await self.next_timestamp()
 
-        # wybrana rola â€“ z shared_state jako jedynego ĹşrĂłdĹ‚a prawdy
+        # wybrana rola – z shared_state jako jedynego źródła prawdy
         if _shared_state is not None:
             role = _shared_state.get("selected_role", "CENTER_L")
         else:
             role = "CENTER_L"
 
-        # klucz aktualnej ramki â€“ teĹĽ z shared_state["current_key"]
+        # klucz aktualnej ramki – też z shared_state["current_key"]
         key = None
         try:
             if _shared_state is not None:
@@ -209,8 +209,8 @@ class BaslerTrack(VideoStreamTrack):
 
         frame_bgr = data[0] if isinstance(data, tuple) else data
 
-        # BGR (z kamer / OpenCV) -> RGB do przeglÄ…darki
-        frame_rgb = frame_bgr[:, :, ::-1]  # zamiana kolejnoĹ›ci kanaĹ‚Ăłw
+        # BGR (z kamer / OpenCV) -> RGB do przeglądarki
+        frame_rgb = frame_bgr[:, :, ::-1]  # zamiana kolejności kanałów
 
         vf = VideoFrame.from_ndarray(frame_rgb, format="rgb24")
         vf.pts, vf.time_base = pts, tb
@@ -306,7 +306,7 @@ async def api_select_camera(request: web.Request):
     role = str(data.get("role", "")).strip()
     if not role:
         return web.json_response({"ok": False, "err": "missing role"}, status=400)
-    # 1) zapis do shared_state â€“ to jest jedyne źródło prawdy
+    # 1) zapis do shared_state – to jest jedyne źródło prawdy
     if _shared_state is not None:
         _shared_state["selected_role"] = role
     # 2) opcjonalnie ustaw lokalny Value jeśli istnieje (w tym procesie zwykle i tak jest None)
@@ -470,7 +470,7 @@ def _overlay_yolo_point_on_frame(frame_bgr: np.ndarray, role: str):
 
 async def api_frame(request: web.Request):
     """
-    Zwraca JPEG bieĹĽÄ…cej ramki wybranej roli.
+    Zwraca JPEG bieżącej ramki wybranej roli.
     NEW: opcjonalne skalowanie po stronie serwera przez query:
          ?out_w=<px>&out_h=<px>
     """
@@ -507,7 +507,7 @@ async def api_frame(request: web.Request):
         except Exception:
             pass
 
-    # --- kodowanie JPEG + nagĹ‚Ăłwki cache ---
+    # --- kodowanie JPEG + nagłówki cache ---
     try:
         import cv2
         params = [
@@ -543,7 +543,7 @@ async def api_frame(request: web.Request):
 async def api_frame_roi(request: web.Request):
     """
     /api/roi?role=...&x=...&y=...&w=...&h=...&out_w=...&out_h=...
-    x,y,w,h w [0..1] wzglÄ™dem PEĹNEJ klatki.
+    x,y,w,h w [0..1] względem PEŁNEJ klatki.
     Kolor liczony tylko dla wycinka (Bayer->BGR), CPU-friendly.
     """
     # --- rola ---
@@ -551,14 +551,14 @@ async def api_frame_roi(request: web.Request):
     if not role:
         role = _shared_state.get("selected_role", "CENTER_L") if _shared_state else "CENTER_L"
 
-    # --- weĹş ostatni klucz do BAYER ---
+    # --- weź ostatni klucz do BAYER ---
     bkey_dict = _shared_state.get("bayer_key") if _shared_state else None
     bayer_key = bkey_dict.get(role) if bkey_dict is not None else None
 
     from storage.shared_memory_manager import get_shared_memory_manager
     smm = get_shared_memory_manager()
 
-    # Fallback: jeśli nie ma BAYER â†’ użyj aktualnej BGR (dziaĹ‚a, ale mniej efektywnie)
+    # Fallback: jeśli nie ma BAYER → użyj aktualnej BGR (działa, ale mniej efektywnie)
     if not bayer_key:
         ck = _shared_state.get("current_key") if _shared_state else None
         key = ck.get(role) if ck is not None else None
@@ -658,7 +658,7 @@ async def api_yolo_stats(request: web.Request):
         return web.json_response({"ok": False, "error": str(e)}, status=500)
 
 async def api_yolo_toggle(request: web.Request):
-    """WĹ‚Ä…cza/wyĹ‚Ä…cza YOLO"""
+    """Włącza/wyłącza YOLO"""
     try:
         data = await request.json()
         enabled = bool(data.get("enabled", False))
@@ -679,7 +679,7 @@ async def api_yolo_toggle(request: web.Request):
         return web.json_response({"ok": False, "error": str(e)}, status=400)
 
 async def api_yolo_load_model(request: web.Request):
-    """Ĺaduje custom model YOLO"""
+    """Ładuje custom model YOLO"""
     try:
         data = await request.json()
         model_path = str(data.get("model_path", "")).strip()
@@ -703,7 +703,7 @@ async def api_yolo_load_model(request: web.Request):
         return web.json_response({"ok": False, "error": str(e)}, status=400)
 
 async def api_yolo_set_class_id(request: web.Request):
-    """Ustawia ID klasy piĹ‚ki"""
+    """Ustawia ID klasy piłki"""
     try:
         data = await request.json()
         class_id = int(data.get("class_id", 0))
@@ -724,7 +724,7 @@ async def api_yolo_set_class_id(request: web.Request):
         return web.json_response({"ok": False, "error": str(e)}, status=400)
 
 async def api_yolo_set_confidence(request: web.Request):
-    """Ustawia prĂłg confidence"""
+    """Ustawia próg confidence"""
     try:
         data = await request.json()
         confidence = float(data.get("confidence", 0.5))
@@ -766,7 +766,7 @@ async def api_yolo_set_image_size(request: web.Request):
         return web.json_response({"ok": False, "error": str(e)}, status=400)
 
 async def api_yolo_set_device(request: web.Request):
-    """Ustawia urzÄ…dzenie YOLO (cpu/cuda)"""
+    """Ustawia urządzenie YOLO (cpu/cuda)"""
     try:
         data = await request.json()
         device = str(data.get("device", "cpu"))
@@ -868,24 +868,24 @@ def _run_webrtc(port: int, shared_state_arg=None, control_q_arg=None):
 # ----------------------------
 def start_webrtc_server(port: int = 8765, manager=None, shared_state=None, control_q=None):
     """
-    Startuje WebRTC jeśli nie dziaĹ‚a. Jeśli dziaĹ‚a â€“ NIE tworzy nowego procesu,
+    Startuje WebRTC jeśli nie działa. Jeśli działa – NIE tworzy nowego procesu,
     tylko aktualizuje URL w shared_state.
     """
     global _webrtc_proc, _shared_state
 
-    # --- 1) Jeśli proces już dziaĹ‚a â†’ tylko odĹ›wieĹĽ URL ---
+    # --- 1) Jeśli proces już działa → tylko odśwież URL ---
     if _webrtc_proc is not None and _webrtc_proc.is_alive():
         try:
             host_ip = _get_host_ip()
             url = f"http://{host_ip}:{port}"
             if shared_state is not None:
                 shared_state["remote_url"] = url
-            print(f"[CTRL] đźŚ WebRTC running at {url}")
+            print(f"[CTRL] 🚀 WebRTC running at {url}")
             return url
         except Exception:
             return None
 
-    # --- 2) Inicjalizacja wspĂłĹ‚dzielonego stanu ---
+    # --- 2) Inicjalizacja współdzielonego stanu ---
     init_shared(manager=manager, shared_state=shared_state)
 
     # --- 3) Uruchom nowy proces ---
@@ -903,7 +903,7 @@ def start_webrtc_server(port: int = 8765, manager=None, shared_state=None, contr
         url = f"http://{host_ip}:{port}"
         if _shared_state is not None:
             _shared_state["remote_url"] = url
-        print(f"[CTRL] đźŚ WebRTC running at {url}")
+        print(f"[CTRL] 🚀 WebRTC running at {url}")
         return url
     except Exception:
         return None
@@ -913,7 +913,7 @@ def kill_child_processes():
     try:
         pid = os.getpid()
         if os.name == "nt":
-            # na Windowsie pozostawiamy terminate() dzieci (robione wyĹĽej)
+            # na Windowsie pozostawiamy terminate() dzieci (robione wyżej)
             return
         import psutil as _ps
         p = _ps.Process(pid)
