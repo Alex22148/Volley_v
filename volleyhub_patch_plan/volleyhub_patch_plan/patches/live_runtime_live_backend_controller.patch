@@ -1,0 +1,24 @@
+--- a/live_runtime/live_backend_controller.py
++++ b/live_runtime/live_backend_controller.py
+@@ -1,4 +1,4 @@
+-﻿from __future__ import annotations
++from __future__ import annotations
+ 
+ import os
+ import threading
+@@ -105,6 +105,7 @@
+         self._error_cooldown: Dict[str, float] = {}
+         self._last_key_seen: str = ""
+         self._last_ts_seen: int = -1
++        self._last_ts_seen_by_role: Dict[str, int] = {}
+         self._last_result_ts_ns: int = -1
+         self._last_resolved_role: str = ""
+ 
+@@ -814,7 +815,6 @@
+             self._counters["frames_read_ok"] += 1
+             ts_ns = int(ts_ns or 0)
+             self._last_key_seen = str(bayer_key)
+-            self._last_ts_seen_by_role: Dict[str, int] = {}
+             last_ts = int(self._last_ts_seen_by_role.get(role, -1))
+             # Stale-frame skip based only on timestamp
+             if ts_ns > 0:
