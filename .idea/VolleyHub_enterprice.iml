@@ -5,6 +5,10 @@
       <sourceFolder url="file://$MODULE_DIR$/dist/fastpath_lab_benchmark" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/dist/fastpath_lab_benchmark/fast_path_v1" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/dist/engines" />
+      <excludeFolder url="file://$MODULE_DIR$/dist/fastpath_lab_benchmark/fast_path_v1/engines/engines" />
+      <excludeFolder url="file://$MODULE_DIR$/dist/fastpath_lab_benchmark/fast_path_v1/engines/onnx" />
+      <excludeFolder url="file://$MODULE_DIR$/dist/fastpath_lab_benchmark/fast_path_v1/reports" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.12 (VolleyHub_enterprice)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
