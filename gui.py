@@ -6,6 +6,10 @@ from typing import TYPE_CHECKING, Any
 
 import customtkinter as ctk
 from storage.shared_memory_manager import get_shared_memory_manager
+from src.runtime_benchmark.benchmark_launcher import (
+    BenchmarkLaunchError,
+    launch_benchmark,
+)
 from ui.style_volleyhub import (
     ACCENT,
     ACCENT_HOVER,
@@ -17,9 +21,6 @@ from ui.style_volleyhub import (
 
 # noinspection PyProtectedMember
 from ui.dir_gui.benchmark import (
-    _auto_benchmark_finish,
-    _auto_benchmark_reset_queues,
-    _auto_benchmark_tick,
     _build_int_range,
     _choose_auto_bench_model_file,
     _choose_auto_bench_models_dir,
@@ -39,14 +40,10 @@ from ui.dir_gui.benchmark import (
     _safe_percentile,
     _safe_stats,
     _sample_system_metrics,
-    _start_auto_benchmark_deprecated,
-    _start_auto_benchmark_legacy,
     _trend_slope,
     _update_auto_bench_plan_summary,
     on_apply_camera_fps,
     on_buffer_seconds_change,
-    start_auto_benchmark,
-    stop_auto_benchmark,
 )
 from ui.dir_gui.layout_operator import (
     _build_auto_benchmark_advanced_ui,
@@ -693,6 +690,161 @@ CaptureGUI.on_preview_double_click = on_preview_double_click
 CaptureGUI._render_to_label = _render_to_label
 CaptureGUI._apply_yolo_point_overlay = _apply_yolo_point_overlay
 
+
+def _benchmark_first_int(self, raw, fallback: int) -> int:
+    try:
+        values = self._parse_int_csv(str(raw or ""))
+        if values:
+            return int(values[0])
+    except Exception:
+        pass
+    return int(fallback)
+
+
+def _benchmark_float(self, raw, fallback: float) -> float:
+    try:
+        return float(str(raw or fallback).strip().replace(",", "."))
+    except Exception:
+        return float(fallback)
+
+
+def _benchmark_selected_model(self) -> str:
+    try:
+        value = str(self.ab_single_model_var.get() or "").strip()
+    except Exception:
+        return ""
+    return value
+
+
+def _start_auto_benchmark_legacy(self):
+    self.start_auto_benchmark()
+
+
+def _start_auto_benchmark_deprecated(self):
+    self.start_auto_benchmark()
+
+
+def start_auto_benchmark(self):
+    process = getattr(self, "_benchmark_process", None)
+    if process is not None and process.poll() is None:
+        self.ab_status_var.set("Runtime benchmark: juz dziala")
+        return
+
+    model_path = _benchmark_selected_model(self)
+    if model_path and not Path(model_path).is_file():
+        self.ab_status_var.set("Runtime benchmark: model nie istnieje")
+        return
+
+    backend_mode = "auto"
+    try:
+        backend_mode = self._normalize_auto_bench_backend_mode(
+            self.ab_backend_mode_var.get()
+        )
+    except Exception:
+        pass
+
+    dry_run = not bool(model_path)
+    inference_backend = "dry_run"
+    if model_path:
+        suffix = Path(model_path).suffix.lower()
+        if backend_mode == "tensorrt":
+            if suffix != ".engine":
+                self.ab_status_var.set("Runtime benchmark: wybierz model .engine")
+                return
+            inference_backend = "tensorrt"
+        elif backend_mode == "ultralytics":
+            if suffix not in (".pt", ".onnx"):
+                self.ab_status_var.set("Runtime benchmark: wybierz model .pt/.onnx")
+                return
+            inference_backend = "ultralytics"
+        elif suffix == ".engine":
+            inference_backend = "tensorrt"
+        elif suffix in (".pt", ".onnx"):
+            inference_backend = "ultralytics"
+        else:
+            self.ab_status_var.set("Runtime benchmark: nieznany typ modelu")
+            return
+        dry_run = False
+
+    imgsz = _benchmark_first_int(
+        self,
+        getattr(self, "ab_imgsz_var", ctk.StringVar(value="640")).get(),
+        640,
+    )
+    batch_size = _benchmark_first_int(
+        self,
+        getattr(self, "ab_batch_var", ctk.StringVar(value="4")).get(),
+        4,
+    )
+    fps = _benchmark_float(
+        self,
+        getattr(self, "ab_camera_fps_var", ctk.StringVar(value="77")).get(),
+        77.0,
+    )
+    measure_s = _benchmark_float(
+        self,
+        getattr(self, "ab_measure_s_var", ctk.StringVar(value="10")).get(),
+        10.0,
+    )
+    num_frames = max(4, int(max(1.0, fps) * max(1.0, measure_s)))
+
+    try:
+        base_dir = self._resolve_benchmark_output_base()
+    except Exception:
+        base_dir = Path.cwd()
+    output_dir = (
+        Path(base_dir)
+        / "runtime_benchmark_gui"
+        / time.strftime("%Y%m%d_%H%M%S")
+    )
+
+    try:
+        result = launch_benchmark(
+            cwd=Path.cwd(),
+            model_path=model_path or None,
+            output_dir=output_dir,
+            fps=fps,
+            num_frames=num_frames,
+            batch_size=batch_size,
+            imgsz=imgsz,
+            inference_backend=inference_backend,
+            dry_run=dry_run,
+        )
+    except BenchmarkLaunchError as e:
+        self.ab_status_var.set(f"Runtime benchmark: {e}")
+        self._set_status("Runtime benchmark niedostepny", "danger")
+        return
+    except Exception as e:
+        self.ab_status_var.set(f"Runtime benchmark: blad startu: {e}")
+        self._set_status("Runtime benchmark blad startu", "danger")
+        return
+
+    self._benchmark_process = result.process
+    try:
+        self.ab_out_var.set(str(output_dir))
+    except Exception:
+        pass
+    mode = "dry-run" if dry_run else inference_backend
+    self.ab_status_var.set(
+        f"Runtime benchmark uruchomiony ({mode}), pid={result.process.pid}"
+    )
+    self._set_status("Runtime benchmark uruchomiony", "accent")
+
+
+def stop_auto_benchmark(self):
+    process = getattr(self, "_benchmark_process", None)
+    if process is None or process.poll() is not None:
+        self.ab_status_var.set("Runtime benchmark: nie dziala")
+        return
+    try:
+        process.terminate()
+        self.ab_status_var.set("Runtime benchmark: zatrzymywany...")
+        self._set_status("Runtime benchmark zatrzymywany", "warning")
+    except Exception as e:
+        self.ab_status_var.set(f"Runtime benchmark: blad stop: {e}")
+        self._set_status("Runtime benchmark blad stop", "danger")
+
+
 # trajectory
 from ui.dir_gui.trajectory import open_trajectory_window
 CaptureGUI.open_trajectory_window = open_trajectory_window
@@ -739,9 +891,6 @@ CaptureGUI._start_auto_benchmark_legacy = _start_auto_benchmark_legacy
 CaptureGUI._start_auto_benchmark_deprecated = _start_auto_benchmark_deprecated
 CaptureGUI.start_auto_benchmark = start_auto_benchmark
 CaptureGUI.stop_auto_benchmark = stop_auto_benchmark
-CaptureGUI._auto_benchmark_reset_queues = _auto_benchmark_reset_queues
-CaptureGUI._auto_benchmark_tick = _auto_benchmark_tick
-CaptureGUI._auto_benchmark_finish = _auto_benchmark_finish
 CaptureGUI.on_apply_camera_fps = on_apply_camera_fps
 CaptureGUI.on_buffer_seconds_change = on_buffer_seconds_change
 CaptureGUI._normalize_auto_bench_source_mode = staticmethod(_normalize_auto_bench_source_mode)

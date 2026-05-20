@@ -10,3 +10,7 @@
 /dist/fastpath_lab_benchmark/engines/
 /dist/fastpath_lab_benchmark/fast_path_v1/reports/
 /dist/fastpath_lab_benchmark/fast_path_v1/engines/
+reports/
+__pycache__/
+.pytest_cache/
+*.pyc

@@ -46,6 +46,10 @@ class FastPathPacketResult:
     color_output_location: str
     inference_input_location: str
     zero_copy_to_inference: bool
+    preprocessing_path: str = ""
+    tensor_device: str = ""
+    tensor_shape: tuple = ()
+    tensor_layout: str = "BCHW"
     fallback_used: Optional[str] = None
     error: Optional[str] = None
 
@@ -171,6 +175,7 @@ class FastPathExecutor:
             "half": self.config.half,
             "device": self.config.device,
             "color_backend": self.config.color_backend,
+            "use_unified_image_processor": bool(self.config.use_unified_image_processor),
             "native_backend_detail": native_info.get("detail"),
             "inference_backend": self.config.inference_backend,
             "init_error": self._init_error,
@@ -217,26 +222,17 @@ class FastPathExecutor:
         stage_ms["stack_ms"] = (time.perf_counter() - t_st) * 1000.0
 
         # Native debayer + resize + normalize, all on CUDA.
-        t_color = time.perf_counter()
+        fallback_used = None
         try:
-            h, w = self.config.imgsz_hw()
-            tensor = self._debayer.debayer(
-                stack,
-                bayer_pattern=self.config.bayer_pattern,
-                output_format="RGB",
-                resize_to=(h, w),
-                normalize=True,
-                output_layout="BCHW",
-                device=self.config.device,
-                half=self.config.half,
-            )
-            torch.cuda.synchronize()
+            tensor, preprocessing_path = self._prepare_bchw_tensor(stack, stage_ms, torch)
         except Exception as exc:
             return self._error_result(roles, ts_ns, f"native debayer failed: {exc}")
-        stage_ms["color_ms"] = (time.perf_counter() - t_color) * 1000.0
+        fallback_used = stage_ms.pop("_fallback_used", None)
 
         zero_copy = bool(getattr(tensor, "is_cuda", False))
         color_output_location = "cuda" if zero_copy else "cpu"
+        tensor_device = self._tensor_device_label(tensor)
+        tensor_shape = self._tensor_shape_tuple(tensor)
 
         # TensorRT inference on the CUDA tensor.
         t_inf = time.perf_counter()
@@ -251,7 +247,8 @@ class FastPathExecutor:
                 max_det=self.config.max_det,
                 verbose=False,
             )
-            torch.cuda.synchronize()
+            if str(self.config.device).startswith("cuda"):
+                torch.cuda.synchronize()
         except Exception as exc:
             return self._error_result(roles, ts_ns, f"predict failed: {exc}")
         stage_ms["inference_ms"] = (time.perf_counter() - t_inf) * 1000.0
@@ -277,11 +274,105 @@ class FastPathExecutor:
             color_output_location=color_output_location,
             inference_input_location=inference_input_location,
             zero_copy_to_inference=zero_copy,
-            fallback_used=None,
+            preprocessing_path=preprocessing_path,
+            tensor_device=tensor_device,
+            tensor_shape=tensor_shape,
+            tensor_layout="BCHW",
+            fallback_used=fallback_used,
             error=None,
         )
 
     # ---------------------------------------------------------- helpers
+
+    def _prepare_bchw_tensor(self, stack: np.ndarray, stage_ms: Dict[str, float], torch):
+        if self.config.use_unified_image_processor:
+            try:
+                return self._prepare_bchw_tensor_unified(stack, stage_ms, torch)
+            except Exception as exc:
+                stage_ms["_fallback_used"] = f"unified_image_processor_failed: {type(exc).__name__}: {exc}"
+                _LOG.warning(
+                    "[FastPathExecutor] unified image processor failed; falling back to native debayer: %s",
+                    exc,
+                )
+        return self._prepare_bchw_tensor_native(stack, stage_ms, torch)
+
+    def _prepare_bchw_tensor_unified(self, stack: np.ndarray, stage_ms: Dict[str, float], torch):
+        from src.runtime_gpu.gpu_image_processor import (
+            GpuImageProcessor,
+            ImageProcessorConfig,
+        )
+
+        h, w = self.config.imgsz_hw()
+        t_color = time.perf_counter()
+        processor = GpuImageProcessor(
+            ImageProcessorConfig(
+                target_size=(h, w),
+                input_color="BAYER",
+                bayer_pattern=self.config.bayer_pattern,
+                normalize=True,
+                device=self.config.device,
+                prefer_cuda=True,
+                half_precision=self.config.half,
+            )
+        )
+        result = processor.process_batch(stack)
+        tensor = result.tensor
+        if str(self.config.device).startswith("cuda") and not bool(getattr(tensor, "is_cuda", False)):
+            raise RuntimeError("unified image processor returned a non-CUDA tensor")
+        self._validate_bchw_tensor(tensor, h, w, source="unified")
+        if str(self.config.device).startswith("cuda"):
+            torch.cuda.synchronize()
+        for key, value in result.stage_ms.items():
+            stage_ms[f"unified_{key}"] = float(value)
+        stage_ms["color_ms"] = (time.perf_counter() - t_color) * 1000.0
+        return tensor, "unified"
+
+    def _prepare_bchw_tensor_native(self, stack: np.ndarray, stage_ms: Dict[str, float], torch):
+        if self._debayer is None:
+            raise RuntimeError("native debayer unavailable")
+        t_color = time.perf_counter()
+        h, w = self.config.imgsz_hw()
+        tensor = self._debayer.debayer(
+            stack,
+            bayer_pattern=self.config.bayer_pattern,
+            output_format="RGB",
+            resize_to=(h, w),
+            normalize=True,
+            output_layout="BCHW",
+            device=self.config.device,
+            half=self.config.half,
+        )
+        if str(self.config.device).startswith("cuda"):
+            torch.cuda.synchronize()
+        self._validate_bchw_tensor(tensor, h, w, source="native")
+        stage_ms["color_ms"] = (time.perf_counter() - t_color) * 1000.0
+        return tensor, "native"
+
+    def _validate_bchw_tensor(self, tensor, h: int, w: int, source: str) -> None:
+        shape = self._tensor_shape_tuple(tensor)
+        expected = (self.config.batch_size, 3, int(h), int(w))
+        if shape != expected:
+            raise RuntimeError(f"unexpected {source} tensor shape: {shape}, expected {expected}")
+
+    @staticmethod
+    def _tensor_shape_tuple(tensor) -> tuple:
+        try:
+            return tuple(int(x) for x in getattr(tensor, "shape", ()))
+        except Exception:
+            return ()
+
+    @staticmethod
+    def _tensor_device_label(tensor) -> str:
+        try:
+            device = getattr(tensor, "device", None)
+            if device is not None:
+                return str(device)
+        except Exception:
+            pass
+        try:
+            return "cuda" if bool(getattr(tensor, "is_cuda", False)) else "cpu"
+        except Exception:
+            return ""
 
     def _error_result(self, roles: List[str], ts_ns: int, msg: str) -> FastPathPacketResult:
         return FastPathPacketResult(

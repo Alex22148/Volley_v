@@ -129,6 +129,158 @@ def test_env_to_config_round_trip(monkeypatch) -> None:
     assert cfg.required_roles == ("LEFT", "CENTER_L", "CENTER_R", "RIGHT")
 
 
+def test_unified_image_processor_flag_defaults_off(monkeypatch) -> None:
+    monkeypatch.delenv("VOLLEYHUB_USE_UNIFIED_IMAGE_PROCESSOR", raising=False)
+    cfg = load_fast_path_config_from_env()
+    assert cfg.use_unified_image_processor is False
+
+
+def test_unified_image_processor_flag_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("VOLLEYHUB_USE_UNIFIED_IMAGE_PROCESSOR", "1")
+    cfg = load_fast_path_config_from_env()
+    assert cfg.use_unified_image_processor is True
+
+
+def test_fast_path_default_uses_native_tensor_prepare(monkeypatch) -> None:
+    import torch
+
+    class _FakeDebayer:
+        def __init__(self):
+            self.calls = 0
+
+        def debayer(self, *args, **kwargs):
+            self.calls += 1
+            return torch.zeros((4, 3, 32, 32), dtype=torch.float32)
+
+    cfg = FastPathConfig(
+        enabled=True,
+        engine_path=str(_ENGINE_B4_640) if _ENGINE_B4_640.exists() else "dummy",
+        imgsz=32,
+        device="cpu",
+        use_unified_image_processor=False,
+    )
+    ex = FastPathExecutor(cfg)
+    ex._debayer = _FakeDebayer()
+    stage_ms = {}
+    stack = np.zeros((4, 64, 64), dtype=np.uint8)
+
+    tensor, path = ex._prepare_bchw_tensor(stack, stage_ms, torch)
+
+    assert tuple(tensor.shape) == (4, 3, 32, 32)
+    assert path == "native"
+    assert ex._debayer.calls == 1
+    assert stage_ms.get("_fallback_used") is None
+    assert "color_ms" in stage_ms
+
+
+def test_unified_image_processor_fallback_to_native(monkeypatch) -> None:
+    import torch
+    from src.runtime_gpu.gpu_image_processor import GpuImageProcessor
+
+    class _FakeDebayer:
+        def __init__(self):
+            self.calls = 0
+
+        def debayer(self, *args, **kwargs):
+            self.calls += 1
+            return torch.zeros((4, 3, 32, 32), dtype=torch.float32)
+
+    def _raise_process_batch(self, frames):
+        raise RuntimeError("forced unified failure")
+
+    monkeypatch.setattr(GpuImageProcessor, "process_batch", _raise_process_batch)
+
+    cfg = FastPathConfig(
+        enabled=True,
+        engine_path=str(_ENGINE_B4_640) if _ENGINE_B4_640.exists() else "dummy",
+        imgsz=32,
+        device="cpu",
+        use_unified_image_processor=True,
+    )
+    ex = FastPathExecutor(cfg)
+    ex._debayer = _FakeDebayer()
+    stage_ms = {}
+    stack = np.zeros((4, 64, 64), dtype=np.uint8)
+
+    tensor, path = ex._prepare_bchw_tensor(stack, stage_ms, torch)
+
+    assert tuple(tensor.shape) == (4, 3, 32, 32)
+    assert path == "native"
+    assert ex._debayer.calls == 1
+    assert "forced unified failure" in stage_ms["_fallback_used"]
+    assert "color_ms" in stage_ms
+
+
+def test_fast_path_result_reports_preprocessing_path_tensor_and_timings() -> None:
+    import torch
+
+    class _FakeDebayer:
+        def debayer(self, *args, **kwargs):
+            return torch.zeros((4, 3, 32, 32), dtype=torch.float32)
+
+    class _FakeModel:
+        def predict(self, *args, **kwargs):
+            return []
+
+    cfg = FastPathConfig(
+        enabled=True,
+        engine_path=str(_ENGINE_B4_640) if _ENGINE_B4_640.exists() else "dummy",
+        imgsz=32,
+        device="cpu",
+        use_unified_image_processor=False,
+    )
+    ex = FastPathExecutor(cfg)
+    ex._debayer = _FakeDebayer()
+    ex._model = _FakeModel()
+    ex._initialized = True
+
+    raws = [np.zeros((64, 64), dtype=np.uint8) for _ in range(4)]
+    roles = ["LEFT", "CENTER_L", "CENTER_R", "RIGHT"]
+    res = ex.process_packet(raws, roles, ts_ns=123)
+
+    assert res.error is None
+    assert res.preprocessing_path == "native"
+    assert res.tensor_device == "cpu"
+    assert res.tensor_shape == (4, 3, 32, 32)
+    assert res.tensor_layout == "BCHW"
+    assert res.fallback_used is None
+    for key in ("stack_ms", "color_ms", "inference_ms", "postprocess_ms", "total_packet_ms"):
+        assert key in res.stage_ms and res.stage_ms[key] >= 0.0
+
+
+def test_native_and_unified_prepare_report_compatible_bchw_format() -> None:
+    import torch
+
+    class _FakeDebayer:
+        def debayer(self, *args, **kwargs):
+            return torch.zeros((4, 3, 32, 32), dtype=torch.float32)
+
+    cfg = FastPathConfig(
+        enabled=True,
+        engine_path=str(_ENGINE_B4_640) if _ENGINE_B4_640.exists() else "dummy",
+        imgsz=32,
+        device="cpu",
+        use_unified_image_processor=True,
+    )
+    ex = FastPathExecutor(cfg)
+    ex._debayer = _FakeDebayer()
+    stack = np.zeros((4, 64, 64), dtype=np.uint8)
+
+    native_tensor, native_path = ex._prepare_bchw_tensor_native(stack, {}, torch)
+    unified_tensor, unified_path = ex._prepare_bchw_tensor_unified(stack, {}, torch)
+
+    assert native_path == "native"
+    assert unified_path == "unified"
+    assert tuple(native_tensor.shape) == tuple(unified_tensor.shape) == (4, 3, 32, 32)
+
+
+def test_fast_path_executor_import_does_not_require_cuda() -> None:
+    import importlib
+
+    module = importlib.import_module("src.runtime_production.fast_path_executor")
+    assert hasattr(module, "FastPathExecutor")
+
+
 @pytest.mark.skipif(not _has_cuda_and_engine(), reason="CUDA + TRT b4 engine required")
 def test_fast_path_processes_synthetic_4cam_packet() -> None:
     cfg = FastPathConfig(

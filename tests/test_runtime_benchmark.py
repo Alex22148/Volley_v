@@ -249,3 +249,55 @@ def test_zero_copy_full_gpu_pipeline_when_cuda_available() -> None:
     assert out.timings.input_location == "cuda"
     assert out.timings.zero_copy_to_inference is True
     assert out.timings.upload_to_gpu_ms == 0.0
+
+
+def test_preprocessing_compare_reports_native_vs_unified_bchw() -> None:
+    from src.runtime_benchmark.run_preprocessing_compare import compare_preprocessing_packet
+
+    src = _small_source(num_frames=1)
+    pkt = next(iter(src.iter_packets()))
+
+    result = compare_preprocessing_packet(
+        pkt,
+        imgsz=32,
+        device="cpu",
+        half=False,
+        native_backend="cpu",
+        bayer_pattern="RG",
+    )
+
+    assert result.native.path == "native"
+    assert result.unified.path == "unified"
+    assert result.native.is_bchw is True
+    assert result.unified.is_bchw is True
+    assert result.native.tensor_shape == result.unified.tensor_shape == (4, 3, 32, 32)
+    assert result.bchw_compatible is True
+    assert result.native.stage_ms["total_path_ms"] >= 0.0
+    assert result.unified.stage_ms["total_path_ms"] >= 0.0
+
+
+def test_preprocessing_compare_writes_outputs(tmp_path: Path) -> None:
+    from src.runtime_benchmark.run_preprocessing_compare import (
+        _parse_args,
+        run_comparison,
+        write_comparison_outputs,
+    )
+
+    args = _parse_args([
+        "--width", "64",
+        "--height", "64",
+        "--num-frames", "1",
+        "--imgsz", "32",
+        "--device", "cpu",
+        "--native-backend", "cpu",
+        "--output-dir", str(tmp_path),
+    ])
+    results = run_comparison(args)
+    write_comparison_outputs(tmp_path, args, results)
+
+    assert (tmp_path / "preprocessing_compare.csv").exists()
+    assert (tmp_path / "preprocessing_compare_summary.json").exists()
+    assert (tmp_path / "preprocessing_compare_details.json").exists()
+    summary = json.loads((tmp_path / "preprocessing_compare_summary.json").read_text(encoding="utf-8"))
+    assert summary["packets_processed"] == 1
+    assert summary["bchw_compatible_packets"] == 1

@@ -62,6 +62,8 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+os.environ.setdefault("VOLLEYHUB_FAST_PATH", "0")
+os.environ.setdefault("VOLLEYHUB_USE_UNIFIED_IMAGE_PROCESSOR", "0")
 
 # (opcjonalnie) wyłącz OpenCL i zredukuj wątki OpenCV
 try:
@@ -83,11 +85,23 @@ import threading  # noqa: E402
 import queue  # noqa: E402
 import multiprocessing as mp  # noqa: E402
 
-from capture.basler_lib import (  # noqa: E402
-    cam_config,
-    load_roles,
-    wait_for_all_ptp_ready,
-    configure_periodic_signal_trigger)
+try:
+    from capture.basler_lib import (  # noqa: E402
+        cam_config,
+        load_roles,
+        wait_for_all_ptp_ready,
+        configure_periodic_signal_trigger)
+    _BASLER_LIB_IMPORT_ERROR = None
+except Exception as e:
+    _BASLER_LIB_IMPORT_ERROR = e
+
+    def _basler_unavailable(*args, **kwargs):
+        raise RuntimeError(f"Basler runtime unavailable: {_BASLER_LIB_IMPORT_ERROR}")
+
+    cam_config = _basler_unavailable
+    load_roles = lambda devs: {}
+    wait_for_all_ptp_ready = lambda cams, max_wait=60: False
+    configure_periodic_signal_trigger = _basler_unavailable
 
 from ui.assign_roles_gui import ask_camera_roles_gui  # noqa: E402
 import core.utils_config as utils_config  # noqa: E402
@@ -1315,7 +1329,7 @@ def backend_initializer(live_q, stats_q, control_q, ready_evt,
                     pass
             _time.sleep(1 / 12)
 
-    if (simulate or not devs) and os.getenv("VOLLEYHUB_SIMULATE","0")=="1":
+    if simulate or not devs:
         stats_q.put("⚠️ Brak wykrytych kamer — włączam SYMULACJĘ.")
         roles = list(shared_state.get("roles", ["CENTER_L", "CENTER_R", "LEFT", "RIGHT"]))
         for r in roles:

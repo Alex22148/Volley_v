@@ -11522,3 +11522,9 @@ ConnectionResetError: [WinError 10054] Istniejące połączenie zostało gwałto
 2026-05-20 10:04:52 | MainProcess | INFO | core.log_setup | LOG start → C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\logs\volleyhub.log
 2026-05-20 10:04:52 | SyncManager-1 | INFO | core.log_setup | LOG start → C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\logs\volleyhub.log
 2026-05-20 10:04:56 | Process-2 | INFO | core.log_setup | LOG start → C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\logs\volleyhub.log
+2026-05-20 11:26:13 | MainProcess | INFO | core.log_setup | LOG start → C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\logs\volleyhub.log
+2026-05-20 11:26:13 | SyncManager-1 | INFO | core.log_setup | LOG start → C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\logs\volleyhub.log
+2026-05-20 11:26:22 | Process-2 | INFO | core.log_setup | LOG start → C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\logs\volleyhub.log
+2026-05-20 11:27:11 | MainProcess | INFO | core.log_setup | LOG start → C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\logs\volleyhub.log
+2026-05-20 11:27:11 | SyncManager-1 | INFO | core.log_setup | LOG start → C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\logs\volleyhub.log
+2026-05-20 11:27:14 | Process-2 | INFO | core.log_setup | LOG start → C:\Users\UGB_a\PycharmProjects\VolleyHub_enterprice\logs\volleyhub.log
